@@ -57,25 +57,25 @@ export const FlashCard: React.FC<FlashCardProps> = ({
       onPress={() => !isFlipped && onFlip()}
       activeOpacity={isFlipped ? 1 : 0.85}
     >
-      {/* 表面 */}
+      {/* 表面：学習言語（backText = targetLang のテキスト）を表示 */}
       <Animated.View style={[styles.card, styles.front, frontStyle]}>
         <View style={styles.cardContent}>
           <CardTypeBadge cardType={card.cardType} />
           <View style={styles.textRow}>
-            <Text style={styles.mainText}>{card.frontText}</Text>
-            <SpeechButton text={card.frontText} lang={sourceLang} />
+            <Text style={styles.mainText}>{card.backText}</Text>
+            <SpeechButton text={card.backText} lang={targetLang} />
           </View>
           <Text style={styles.hint}>{t('study.tapToReveal')}</Text>
         </View>
       </Animated.View>
 
-      {/* 裏面 */}
+      {/* 裏面：母語（frontText = sourceLang のテキスト）を表示 */}
       <Animated.View style={[styles.card, styles.back, backStyle]}>
         <ScrollView style={styles.scrollArea} contentContainerStyle={styles.cardContent}>
           <CardTypeBadge cardType={card.cardType} />
           <View style={styles.textRow}>
-            <Text style={styles.mainText}>{card.backText}</Text>
-            <SpeechButton text={card.backText} lang={targetLang} />
+            <Text style={styles.mainText}>{card.frontText}</Text>
+            <SpeechButton text={card.frontText} lang={sourceLang} />
           </View>
           {card.extraInfo?.partOfSpeech && (
             <Text style={styles.meta}>品詞: {card.extraInfo.partOfSpeech}</Text>

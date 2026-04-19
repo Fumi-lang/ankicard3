@@ -21,7 +21,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   defaultSourceLang: 'ja',
   defaultTargetLang: 'en',
   autoPlaySpeech: false,
-  speechRate: 0.85,
+  speechRate: 1.0,
 
   setAppLanguage: (lang) => set({ appLanguage: lang }),
   setDefaultSourceLang: (lang) => set({ defaultSourceLang: lang }),
