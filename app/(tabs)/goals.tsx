@@ -51,6 +51,13 @@ export default function GoalsScreen() {
   };
 
   const handleDelete = (id: string) => {
+    // Alert.alertはWeb環境でボタン付きダイアログを表示できないため window.confirm を使用
+    if (typeof window !== 'undefined') {
+      if (window.confirm(`${t('goals.delete')} — ${t('common.confirm')}`)) {
+        deleteGoal(id);
+      }
+      return;
+    }
     Alert.alert(t('goals.delete'), t('common.confirm'), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('common.delete'), style: 'destructive', onPress: () => deleteGoal(id) },

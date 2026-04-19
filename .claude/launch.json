@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Expo Web (dev)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "web"],
+      "port": 8081
+    },
+    {
+      "name": "Expo (all platforms)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start"],
+      "port": 8081
+    }
+  ]
+}

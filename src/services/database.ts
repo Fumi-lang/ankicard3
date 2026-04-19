@@ -40,7 +40,13 @@ export async function updateDeck(deck: Deck): Promise<void> {
 }
 
 export async function deleteDeck(id: string): Promise<void> {
-  await db.transaction('rw', db.decks, db.cards, async () => {
+  await db.transaction('rw', db.decks, db.cards, db.studyLogs, async () => {
+    // 削除前にカードIDを収集して関連する学習ログも削除する
+    const cards = await db.cards.where('deckId').equals(id).toArray();
+    const cardIds = cards.map((c) => c.id);
+    if (cardIds.length > 0) {
+      await db.studyLogs.where('cardId').anyOf(cardIds).delete();
+    }
     await db.cards.where('deckId').equals(id).delete();
     await db.decks.delete(id);
   });

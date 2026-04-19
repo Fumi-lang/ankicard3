@@ -9,10 +9,11 @@ interface DeckCardProps {
   dueCount?: number;
   onPress: () => void;
   onStudy?: () => void;
+  onDelete?: () => void;
 }
 
 /** デッキ一覧用カードUI */
-export const DeckCard: React.FC<DeckCardProps> = ({ deck, dueCount = 0, onPress, onStudy }) => {
+export const DeckCard: React.FC<DeckCardProps> = ({ deck, dueCount = 0, onPress, onStudy, onDelete }) => {
   const { t, i18n } = useTranslation();
   const lang = i18n.language as 'ja' | 'en';
 
@@ -23,11 +24,22 @@ export const DeckCard: React.FC<DeckCardProps> = ({ deck, dueCount = 0, onPress,
     <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.8}>
       <View style={styles.header}>
         <Text style={styles.name} numberOfLines={1}>{deck.name}</Text>
-        {dueCount > 0 && (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{dueCount}</Text>
-          </View>
-        )}
+        <View style={styles.headerRight}>
+          {dueCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{dueCount}</Text>
+            </View>
+          )}
+          {onDelete && (
+            <TouchableOpacity
+              onPress={(e) => { e.stopPropagation(); onDelete(); }}
+              style={styles.deleteButton}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.deleteButtonText}>×</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
       {deck.description && (
         <Text style={styles.description} numberOfLines={1}>{deck.description}</Text>
@@ -73,6 +85,25 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1E293B',
     flex: 1,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  deleteButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteButtonText: {
+    fontSize: 16,
+    lineHeight: 20,
+    color: '#DC2626',
+    fontWeight: '700',
   },
   badge: {
     backgroundColor: '#4F46E5',

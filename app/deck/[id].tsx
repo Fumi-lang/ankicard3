@@ -34,6 +34,12 @@ export default function DeckDetailScreen() {
     : cards.filter((c) => c.cardType === filterType);
 
   const handleDelete = (card: Card) => {
+    if (typeof window !== 'undefined') {
+      if (window.confirm(t('card.confirmDelete'))) {
+        deleteCard(card.id);
+      }
+      return;
+    }
     Alert.alert(t('card.delete'), t('card.confirmDelete'), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('common.delete'), style: 'destructive', onPress: () => deleteCard(card.id) },

@@ -51,6 +51,12 @@ export default function DecksScreen() {
   };
 
   const handleDelete = (deck: Deck) => {
+    if (typeof window !== 'undefined') {
+      if (window.confirm(`${t('deck.deleteDeck')}: "${deck.name}"\n${t('deck.confirmDelete')}`)) {
+        deleteDeck(deck.id);
+      }
+      return;
+    }
     Alert.alert(t('deck.deleteDeck'), t('deck.confirmDelete'), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('common.delete'), style: 'destructive', onPress: () => deleteDeck(deck.id) },
@@ -82,6 +88,7 @@ export default function DecksScreen() {
               dueCount={dueCounts[deck.id] ?? 0}
               onPress={() => router.push(`/deck/${deck.id}`)}
               onStudy={() => router.push(`/deck/study/${deck.id}`)}
+              onDelete={() => handleDelete(deck)}
             />
           ))
         )}
