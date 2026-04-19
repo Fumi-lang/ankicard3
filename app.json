@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "MemoryFlow",
+    "slug": "memory-flow",
+    "version": "1.0.0",
+    "platforms": ["web"],
+    "icon": "./assets/icon.png",
+    "newArchEnabled": true,
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "memory-flow",
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}
