@@ -39,7 +39,9 @@ export default function StudyScreen() {
     const deckId = id === 'all' ? undefined : id;
     loadCards(deckId);
     if (id && id !== 'all') {
-      getDeckById(id).then(setDeck);
+      getDeckById(id).then((d) => {
+        setDeck(d ?? null);
+      });
     }
   }, [id]);
 
@@ -78,6 +80,11 @@ export default function StudyScreen() {
   };
 
   const progress = cards.length > 0 ? currentIndex / cards.length : 0;
+
+  const clozeAnswerLangValue =
+    deck?.extraSettings?.clozeAnswerSpeechLang === 'source'
+      ? (deck?.sourceLang ?? 'ja')
+      : (deck?.targetLang ?? 'en');
 
   if (isLoading) {
     return (
@@ -157,11 +164,7 @@ export default function StudyScreen() {
             onFlip={flipCard}
             sourceLang={deck?.sourceLang ?? 'ja'}
             targetLang={deck?.targetLang ?? 'en'}
-            clozeAnswerLang={
-              deck?.extraSettings?.clozeAnswerSpeechLang === 'source'
-                ? (deck?.sourceLang ?? 'ja')
-                : (deck?.targetLang ?? 'en')
-            }
+            clozeAnswerLang={clozeAnswerLangValue}
           />
         )}
       </View>
