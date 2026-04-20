@@ -16,6 +16,8 @@ interface FlashCardProps {
   onFlip: () => void;
   sourceLang: string;
   targetLang: string;
+  /** 穴埋めカード裏面（答え）の読み上げ言語。未指定時は targetLang を使用 */
+  clozeAnswerLang?: string;
 }
 
 /**
@@ -46,6 +48,7 @@ export const FlashCard: React.FC<FlashCardProps> = ({
   onFlip,
   sourceLang,
   targetLang,
+  clozeAnswerLang,
 }) => {
   const { t } = useTranslation();
   const rotation = useSharedValue(0);
@@ -118,9 +121,10 @@ export const FlashCard: React.FC<FlashCardProps> = ({
           </View>
           <View style={styles.textRow}>
             <Text style={styles.mainText}>{card.frontText}</Text>
-            {card.cardForm === 'translation' && (
-              <SpeechButton text={card.frontText} lang={sourceLang} />
-            )}
+            <SpeechButton
+              text={card.frontText}
+              lang={card.cardForm === 'translation' ? sourceLang : (clozeAnswerLang ?? targetLang)}
+            />
           </View>
           {card.extraInfo?.partOfSpeech && (
             <Text style={styles.meta}>品詞: {card.extraInfo.partOfSpeech}</Text>

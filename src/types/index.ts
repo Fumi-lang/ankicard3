@@ -12,6 +12,15 @@ export type StudyQuality = 'again' | 'hard' | 'good' | 'easy';
 /** アプリUIの言語設定 */
 export type AppLanguage = 'ja' | 'en';
 
+/** デッキ固有の追加設定 */
+export interface DeckExtraSettings {
+  /** 穴埋めカード裏面（答え）の音声言語
+   *  'target' = 学習言語（デフォルト）: 答え単語の正確な発音を確認できる
+   *  'source' = 母語
+   */
+  clozeAnswerSpeechLang?: 'target' | 'source';
+}
+
 /** デッキ情報 */
 export interface Deck {
   id: string;
@@ -22,6 +31,7 @@ export interface Deck {
   cardCount: number;
   createdAt: string;
   updatedAt: string;
+  extraSettings?: DeckExtraSettings;
 }
 
 /** カードの補足情報 */

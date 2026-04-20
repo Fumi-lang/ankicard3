@@ -24,7 +24,7 @@ export default function StudyScreen() {
   const {
     currentCard, isFlipped, isComplete, isLoading,
     correctCount, incorrectCount, consecutiveCorrect,
-    cards, currentIndex, loadCards, flipCard, answerCard,
+    cards, currentIndex, loadCards, flipCard, resetFlip, answerCard,
   } = useStudySession();
 
   const { getEstimates } = useSpacedRepetition();
@@ -32,6 +32,8 @@ export default function StudyScreen() {
 
   const [deck, setDeck] = useState<Deck | null>(null);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
+  // フリップ戻しアニメーション中のボタン二重タップ防止
+  const [isAnswering, setIsAnswering] = useState(false);
 
   useEffect(() => {
     const deckId = id === 'all' ? undefined : id;
@@ -50,12 +52,25 @@ export default function StudyScreen() {
     }
   }, [consecutiveCorrect]);
 
-  const handleAnswer = async (quality: StudyQuality) => {
-    await answerCard(quality);
-    // バイブレーション（モバイルブラウザのみ）
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate(quality === 'again' ? 100 : 30);
-    }
+  // FlashCard の withTiming duration と同じ値（400ms）
+  const FLIP_DURATION = 400;
+
+  const handleAnswer = (quality: StudyQuality) => {
+    if (isAnswering) return;
+    setIsAnswering(true);
+
+    // Step 1: isFlipped を false にして表面へ戻すアニメーションを開始
+    resetFlip();
+
+    // Step 2: アニメーション完了後にカードを切り替える
+    setTimeout(async () => {
+      await answerCard(quality);
+      // バイブレーション（モバイルブラウザのみ）
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(quality === 'again' ? 100 : 30);
+      }
+      setIsAnswering(false);
+    }, FLIP_DURATION);
   };
 
   const estimates = currentCard ? getEstimates(currentCard, lang) : {
@@ -142,6 +157,11 @@ export default function StudyScreen() {
             onFlip={flipCard}
             sourceLang={deck?.sourceLang ?? 'ja'}
             targetLang={deck?.targetLang ?? 'en'}
+            clozeAnswerLang={
+              deck?.extraSettings?.clozeAnswerSpeechLang === 'source'
+                ? (deck?.sourceLang ?? 'ja')
+                : (deck?.targetLang ?? 'en')
+            }
           />
         )}
       </View>
@@ -151,6 +171,7 @@ export default function StudyScreen() {
         <DifficultyButtons
           estimates={estimates}
           onAnswer={handleAnswer}
+          disabled={isAnswering}
         />
       ) : (
         <View style={styles.flipHint}>

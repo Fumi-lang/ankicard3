@@ -183,19 +183,21 @@ export default function CreateCardScreen() {
         {/* 手動入力フォーム */}
         {method === 'manual' && (
           <View style={styles.section}>
-            <Text style={styles.inputLabel}>{getFrontLabel()}</Text>
-            <TextInput
-              style={styles.input}
-              value={frontText}
-              onChangeText={setFrontText}
-              placeholder="..."
-            />
+            {/* 上段: 学習言語テキスト（backText = 表面に表示）*/}
             <Text style={styles.inputLabel}>{getBackLabel()}</Text>
             <TextInput
               style={styles.input}
               value={backText}
               onChangeText={setBackText}
               placeholder={cardForm === 'cloze' ? '例: The ___ is shining today.' : '...'}
+            />
+            {/* 下段: 母語テキスト（frontText = 裏面に表示）*/}
+            <Text style={styles.inputLabel}>{getFrontLabel()}</Text>
+            <TextInput
+              style={styles.input}
+              value={frontText}
+              onChangeText={setFrontText}
+              placeholder="..."
             />
             <TouchableOpacity
               style={[styles.saveButton, (!frontText.trim() || !backText.trim()) && styles.disabled]}

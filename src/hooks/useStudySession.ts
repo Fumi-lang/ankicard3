@@ -17,6 +17,7 @@ interface UseStudySessionReturn extends StudySessionState {
   currentCard: Card | null;
   loadCards: (deckId?: string) => Promise<void>;
   flipCard: () => void;
+  resetFlip: () => void;
   answerCard: (quality: StudyQuality) => Promise<void>;
   isLoading: boolean;
 }
@@ -59,6 +60,11 @@ export function useStudySession(): UseStudySessionReturn {
     setState((s) => ({ ...s, isFlipped: true }));
   }, []);
 
+  /** isFlipped だけを false にリセット（カード切り替えは行わない）*/
+  const resetFlip = useCallback(() => {
+    setState((s) => ({ ...s, isFlipped: false }));
+  }, []);
+
   const answerCard = useCallback(
     async (quality: StudyQuality) => {
       const card = state.cards[state.currentIndex];
@@ -85,5 +91,5 @@ export function useStudySession(): UseStudySessionReturn {
 
   const currentCard = state.cards[state.currentIndex] ?? null;
 
-  return { ...state, currentCard, loadCards, flipCard, answerCard, isLoading };
+  return { ...state, currentCard, loadCards, flipCard, resetFlip, answerCard, isLoading };
 }

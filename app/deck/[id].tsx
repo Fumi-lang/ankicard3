@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  SafeAreaView, Alert, FlatList
+  SafeAreaView, Alert, FlatList, Modal, TextInput
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useCardStore } from '../../src/stores/cardStore';
+import { useDeckStore } from '../../src/stores/deckStore';
 import { getDeckById } from '../../src/services/database';
 import { exportDeck } from '../../src/services/deckExporter';
 import { CardFormBadge } from '../../src/components/CardTypeBadge';
@@ -16,16 +17,31 @@ import type { Card, CardForm, Deck } from '../../src/types';
 export default function DeckDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t } = useTranslation();
-  const { cards, fetchCards, deleteCard } = useCardStore();
+  const { cards, fetchCards, deleteCard, updateCard } = useCardStore();
+  const { updateDeck } = useDeckStore();
 
   const [deck, setDeck] = useState<Deck | null>(null);
   const [filterForm, setFilterForm] = useState<CardForm | 'all'>('all');
   const [showExportMenu, setShowExportMenu] = useState(false);
 
+  // 編集モーダル
+  const [editingCard, setEditingCard] = useState<Card | null>(null);
+  const [editFront, setEditFront] = useState('');
+  const [editBack, setEditBack] = useState('');
+
+  // デッキ設定モーダル
+  const [showDeckSettings, setShowDeckSettings] = useState(false);
+  const [clozeAnswerLang, setClozeAnswerLang] = useState<'target' | 'source'>('target');
+
   useEffect(() => {
     if (id) {
       fetchCards(id);
-      getDeckById(id).then(setDeck);
+      getDeckById(id).then((d) => {
+        if (d) {
+          setDeck(d);
+          setClozeAnswerLang(d.extraSettings?.clozeAnswerSpeechLang ?? 'target');
+        }
+      });
     }
   }, [id]);
 
@@ -46,6 +62,23 @@ export default function DeckDetailScreen() {
     ]);
   };
 
+  const handleOpenEdit = (card: Card) => {
+    setEditingCard(card);
+    setEditFront(card.frontText);
+    setEditBack(card.backText);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingCard) return;
+    await updateCard({
+      ...editingCard,
+      frontText: editFront.trim(),
+      backText: editBack.trim(),
+      updatedAt: new Date().toISOString(),
+    });
+    setEditingCard(null);
+  };
+
   const handleExport = async (includeProgress: boolean) => {
     setShowExportMenu(false);
     if (!id) return;
@@ -54,6 +87,18 @@ export default function DeckDetailScreen() {
     } catch (e) {
       Alert.alert('エラー', String(e));
     }
+  };
+
+  const handleSaveDeckSettings = async () => {
+    if (!deck) return;
+    const updated: Deck = {
+      ...deck,
+      extraSettings: { ...deck.extraSettings, clozeAnswerSpeechLang: clozeAnswerLang },
+      updatedAt: new Date().toISOString(),
+    };
+    await updateDeck(updated);
+    setDeck(updated);
+    setShowDeckSettings(false);
   };
 
   if (!deck) return null;
@@ -117,18 +162,25 @@ export default function DeckDetailScreen() {
           <View style={styles.cardRow}>
             <CardFormBadge cardForm={item.cardForm} />
             <View style={styles.cardTexts}>
+              {/* 上段: 学習言語（backText = targetLang）*/}
               <View style={styles.textRow}>
-                <Text style={styles.frontText} numberOfLines={2}>{item.frontText}</Text>
-                <SpeechButton text={item.frontText} lang={deck.sourceLang} size="small" />
-              </View>
-              <View style={styles.textRow}>
-                <Text style={styles.backText} numberOfLines={2}>{item.backText}</Text>
+                <Text style={styles.targetText} numberOfLines={2}>{item.backText}</Text>
                 <SpeechButton text={item.backText} lang={deck.targetLang} size="small" />
               </View>
+              {/* 下段: 母語（frontText = sourceLang）*/}
+              <View style={styles.textRow}>
+                <Text style={styles.sourceText} numberOfLines={2}>{item.frontText}</Text>
+                <SpeechButton text={item.frontText} lang={deck.sourceLang} size="small" />
+              </View>
             </View>
-            <TouchableOpacity onPress={() => handleDelete(item)} style={styles.deleteButton}>
-              <Text style={styles.deleteText}>×</Text>
-            </TouchableOpacity>
+            <View style={styles.cardActions}>
+              <TouchableOpacity onPress={() => handleOpenEdit(item)} style={styles.editButton}>
+                <Text style={styles.editText}>✏️</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleDelete(item)} style={styles.deleteButton}>
+                <Text style={styles.deleteText}>×</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
         ListEmptyComponent={
@@ -136,9 +188,15 @@ export default function DeckDetailScreen() {
         }
       />
 
-      {/* エクスポートメニュー */}
+      {/* エクスポート / 設定メニュー */}
       {showExportMenu && (
         <View style={styles.exportMenu}>
+          <TouchableOpacity
+            style={styles.exportMenuItem}
+            onPress={() => { setShowExportMenu(false); setShowDeckSettings(true); }}
+          >
+            <Text style={styles.exportMenuText}>{t('deck.settings')}</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.exportMenuItem} onPress={() => handleExport(true)}>
             <Text style={styles.exportMenuText}>{t('deck.exportWithProgress')}</Text>
           </TouchableOpacity>
@@ -150,6 +208,77 @@ export default function DeckDetailScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* カード編集モーダル */}
+      <Modal visible={editingCard !== null} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>{t('card.edit')}</Text>
+            <Text style={styles.inputLabel}>{t('card.backTranslation')}</Text>
+            <TextInput
+              style={styles.textInput}
+              value={editBack}
+              onChangeText={setEditBack}
+              multiline
+            />
+            <Text style={styles.inputLabel}>{t('card.frontTranslation')}</Text>
+            <TextInput
+              style={styles.textInput}
+              value={editFront}
+              onChangeText={setEditFront}
+              multiline
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setEditingCard(null)}
+              >
+                <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalSaveBtn} onPress={handleSaveEdit}>
+                <Text style={styles.modalSaveText}>{t('common.save')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* デッキ設定モーダル */}
+      <Modal visible={showDeckSettings} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>{t('deck.settings')}</Text>
+            <Text style={styles.settingsSectionLabel}>{t('deck.clozeAnswerSpeechLang')}</Text>
+            {(['target', 'source'] as const).map((val) => (
+              <TouchableOpacity
+                key={val}
+                style={styles.radioRow}
+                onPress={() => setClozeAnswerLang(val)}
+              >
+                <View style={[styles.radioCircle, clozeAnswerLang === val && styles.radioCircleActive]} />
+                <Text style={styles.radioLabel}>
+                  {val === 'target' ? t('deck.clozeAnswerTarget') : t('deck.clozeAnswerSource')}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => {
+                  // 変更を破棄してリセット
+                  setClozeAnswerLang(deck.extraSettings?.clozeAnswerSpeechLang ?? 'target');
+                  setShowDeckSettings(false);
+                }}
+              >
+                <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalSaveBtn} onPress={handleSaveDeckSettings}>
+                <Text style={styles.modalSaveText}>{t('common.save')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -197,8 +326,11 @@ const styles = StyleSheet.create({
   },
   cardTexts: { flex: 1, gap: 4 },
   textRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  frontText: { flex: 1, fontSize: 14, fontWeight: '500', color: '#1E293B' },
-  backText: { flex: 1, fontSize: 13, color: '#475569' },
+  targetText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#1E293B' },
+  sourceText: { flex: 1, fontSize: 13, color: '#64748B' },
+  cardActions: { flexDirection: 'column', alignItems: 'center', gap: 2 },
+  editButton: { padding: 4 },
+  editText: { fontSize: 14 },
   deleteButton: { padding: 4 },
   deleteText: { fontSize: 18, color: '#CBD5E1' },
   emptyText: { textAlign: 'center', color: '#94A3B8', marginTop: 60, fontSize: 14 },
@@ -215,4 +347,40 @@ const styles = StyleSheet.create({
   exportMenuText: { fontSize: 14, color: '#1E293B', fontWeight: '500' },
   exportMenuCancel: { padding: 14, alignItems: 'center' },
   exportMenuCancelText: { fontSize: 14, color: '#94A3B8' },
+  // モーダル共通
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalBox: {
+    backgroundColor: '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 24, gap: 12,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: '#1E293B', marginBottom: 4 },
+  inputLabel: { fontSize: 12, color: '#64748B', fontWeight: '600' },
+  textInput: {
+    borderWidth: 1.5, borderColor: '#E2E8F0', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 14, color: '#1E293B', minHeight: 44,
+  },
+  modalActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  modalCancelBtn: {
+    flex: 1, borderWidth: 1.5, borderColor: '#E2E8F0', borderRadius: 10,
+    paddingVertical: 12, alignItems: 'center',
+  },
+  modalCancelText: { color: '#64748B', fontSize: 14, fontWeight: '500' },
+  modalSaveBtn: {
+    flex: 1, backgroundColor: '#4F46E5', borderRadius: 10,
+    paddingVertical: 12, alignItems: 'center',
+  },
+  modalSaveText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
+  // デッキ設定
+  settingsSectionLabel: { fontSize: 13, color: '#64748B', fontWeight: '600', marginTop: 4 },
+  radioRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+  radioCircle: {
+    width: 18, height: 18, borderRadius: 9,
+    borderWidth: 2, borderColor: '#CBD5E1',
+  },
+  radioCircleActive: { borderColor: '#4F46E5', backgroundColor: '#4F46E5' },
+  radioLabel: { fontSize: 14, color: '#1E293B' },
 });
