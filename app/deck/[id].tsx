@@ -8,9 +8,9 @@ import { useTranslation } from 'react-i18next';
 import { useCardStore } from '../../src/stores/cardStore';
 import { getDeckById } from '../../src/services/database';
 import { exportDeck } from '../../src/services/deckExporter';
-import { CardTypeBadge } from '../../src/components/CardTypeBadge';
+import { CardFormBadge } from '../../src/components/CardTypeBadge';
 import { SpeechButton } from '../../src/components/SpeechButton';
-import type { Card, CardType, Deck } from '../../src/types';
+import type { Card, CardForm, Deck } from '../../src/types';
 
 /** デッキ詳細・カード一覧画面 */
 export default function DeckDetailScreen() {
@@ -19,7 +19,7 @@ export default function DeckDetailScreen() {
   const { cards, fetchCards, deleteCard } = useCardStore();
 
   const [deck, setDeck] = useState<Deck | null>(null);
-  const [filterType, setFilterType] = useState<CardType | 'all'>('all');
+  const [filterForm, setFilterForm] = useState<CardForm | 'all'>('all');
   const [showExportMenu, setShowExportMenu] = useState(false);
 
   useEffect(() => {
@@ -29,9 +29,9 @@ export default function DeckDetailScreen() {
     }
   }, [id]);
 
-  const filteredCards = filterType === 'all'
+  const filteredCards = filterForm === 'all'
     ? cards
-    : cards.filter((c) => c.cardType === filterType);
+    : cards.filter((c) => c.cardForm === filterForm);
 
   const handleDelete = (card: Card) => {
     if (typeof window !== 'undefined') {
@@ -58,11 +58,10 @@ export default function DeckDetailScreen() {
 
   if (!deck) return null;
 
-  const FILTERS: { key: CardType | 'all'; label: string }[] = [
-    { key: 'all', label: t('deck.filterAll') },
-    { key: 'word', label: t('deck.filterWord') },
-    { key: 'collocation', label: t('deck.filterCollocation') },
-    { key: 'sentence', label: t('deck.filterSentence') },
+  const FILTERS: { key: CardForm | 'all'; label: string }[] = [
+    { key: 'all',         label: t('deck.filterAll') },
+    { key: 'translation', label: t('deck.filterTranslation') },
+    { key: 'cloze',       label: t('deck.filterCloze') },
   ];
 
   return (
@@ -99,10 +98,10 @@ export default function DeckDetailScreen() {
         {FILTERS.map((f) => (
           <TouchableOpacity
             key={f.key}
-            style={[styles.filterChip, filterType === f.key && styles.filterChipActive]}
-            onPress={() => setFilterType(f.key)}
+            style={[styles.filterChip, filterForm === f.key && styles.filterChipActive]}
+            onPress={() => setFilterForm(f.key)}
           >
-            <Text style={[styles.filterText, filterType === f.key && styles.filterTextActive]}>
+            <Text style={[styles.filterText, filterForm === f.key && styles.filterTextActive]}>
               {f.label}
             </Text>
           </TouchableOpacity>
@@ -116,7 +115,7 @@ export default function DeckDetailScreen() {
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
           <View style={styles.cardRow}>
-            <CardTypeBadge cardType={item.cardType} />
+            <CardFormBadge cardForm={item.cardForm} />
             <View style={styles.cardTexts}>
               <View style={styles.textRow}>
                 <Text style={styles.frontText} numberOfLines={2}>{item.frontText}</Text>

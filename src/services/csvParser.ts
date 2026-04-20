@@ -1,8 +1,11 @@
 import Papa from 'papaparse';
-import type { ImportedCardData, CardType } from '../types';
+import type { ImportedCardData, CardForm } from '../types';
 
 /** CSV/TSVファイルを解析してImportedCardData[]に変換 */
-export async function parseCSV(file: File): Promise<ImportedCardData[]> {
+export async function parseCSV(
+  file: File,
+  defaultCardForm: CardForm = 'translation'
+): Promise<ImportedCardData[]> {
   return new Promise((resolve, reject) => {
     Papa.parse(file, {
       header: false,
@@ -10,7 +13,7 @@ export async function parseCSV(file: File): Promise<ImportedCardData[]> {
       complete: (results) => {
         const rows = results.data as string[][];
         const cards = rows
-          .map((row, i) => parseCSVRow(row, i))
+          .map((row, i) => parseCSVRow(row, i, defaultCardForm))
           .filter((c): c is ImportedCardData => c !== null);
         resolve(cards);
       },
@@ -20,20 +23,27 @@ export async function parseCSV(file: File): Promise<ImportedCardData[]> {
 }
 
 /** 文字列からCSVを解析（テキスト入力用）*/
-export function parseCSVText(text: string): ImportedCardData[] {
+export function parseCSVText(
+  text: string,
+  defaultCardForm: CardForm = 'translation'
+): ImportedCardData[] {
   const results = Papa.parse<string[]>(text, {
     header: false,
     skipEmptyLines: true,
   });
   return (results.data as string[][])
-    .map((row, i) => parseCSVRow(row, i))
+    .map((row, i) => parseCSVRow(row, i, defaultCardForm))
     .filter((c): c is ImportedCardData => c !== null);
 }
 
-function parseCSVRow(row: string[], index: number): ImportedCardData | null {
+function parseCSVRow(
+  row: string[],
+  index: number,
+  defaultCardForm: CardForm
+): ImportedCardData | null {
   if (row.length < 2) {
     return {
-      cardType: 'word',
+      cardForm: defaultCardForm,
       frontText: row[0]?.trim() ?? '',
       backText: '',
       isValid: false,
@@ -43,16 +53,16 @@ function parseCSVRow(row: string[], index: number): ImportedCardData | null {
 
   const frontText = row[0]?.trim() ?? '';
   const backText = row[1]?.trim() ?? '';
-  const cardTypeRaw = row[2]?.trim().toLowerCase();
+  const cardFormRaw = row[2]?.trim().toLowerCase();
 
-  const validTypes: CardType[] = ['word', 'collocation', 'sentence'];
-  const cardType: CardType = validTypes.includes(cardTypeRaw as CardType)
-    ? (cardTypeRaw as CardType)
-    : 'word';
+  const validForms: CardForm[] = ['translation', 'cloze'];
+  const cardForm: CardForm = validForms.includes(cardFormRaw as CardForm)
+    ? (cardFormRaw as CardForm)
+    : defaultCardForm;
 
   if (!frontText || !backText) {
     return {
-      cardType,
+      cardForm,
       frontText,
       backText,
       isValid: false,
@@ -60,5 +70,5 @@ function parseCSVRow(row: string[], index: number): ImportedCardData | null {
     };
   }
 
-  return { cardType, frontText, backText, isValid: true };
+  return { cardForm, frontText, backText, isValid: true };
 }

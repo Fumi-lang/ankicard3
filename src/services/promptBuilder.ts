@@ -1,39 +1,35 @@
-import type { CardType } from '../types';
+import type { CardForm } from '../types';
 import { getLangName } from '../utils/speechLocale';
 
-/** Claude用プロンプトの生成（カードタイプ別）*/
+/** Claude用プロンプトの生成（カードフォーム別）*/
 export function buildPrompt(
-  cardType: CardType,
+  cardForm: CardForm,
   items: string[],
   sourceLang: string,
-  targetLang: string
+  targetLang: string,
+  cardCount: number = 5
 ): string {
   const sourceLangName = getLangName(sourceLang, 'ja');
   const targetLangName = getLangName(targetLang, 'ja');
-
   const itemList = items.map((item, i) => `${i + 1}. ${item.trim()}`).join('\n');
-  const conjugationNote = getConjugationNote(targetLang);
 
-  switch (cardType) {
-    case 'word':
-      return buildWordPrompt(itemList, sourceLangName, targetLangName, conjugationNote);
-    case 'collocation':
-      return buildCollocationPrompt(itemList, sourceLangName, targetLangName);
-    case 'sentence':
-      return buildSentencePrompt(itemList, sourceLangName, targetLangName);
+  if (cardForm === 'translation') {
+    return buildTranslationPrompt(itemList, sourceLangName, targetLangName, cardCount);
+  } else {
+    return buildClozePrompt(itemList, sourceLangName, targetLangName, cardCount);
   }
 }
 
-function buildWordPrompt(
+function buildTranslationPrompt(
   itemList: string,
   sourceLangName: string,
   targetLangName: string,
-  conjugationNote: string
+  cardCount: number
 ): string {
-  return `あなたは多言語辞書の専門家です。
-以下の${sourceLangName}の単語を${targetLangName}に翻訳し、各単語について詳細な情報をJSON形式で返してください。
+  return `あなたは外国語教育の専門家です。
+以下の${sourceLangName}の単語・フレーズを${targetLangName}に翻訳し、${cardCount}枚の翻訳カードをJSON形式で返してください。
 
-【単語リスト】
+【入力リスト】
 ${itemList}
 
 【出力形式】
@@ -41,92 +37,81 @@ ${itemList}
 
 [
   {
-    "type": "word",
-    "original": "元の単語",
-    "translation": "翻訳結果",
-    "partOfSpeech": "noun/verb/adjective/adverb/other",
-    "pronunciation": "発音表記",
-    "exampleSentence": "${targetLangName}での例文",
-    "collocations": ["よく使われるコロケーション1", "コロケーション2"],
-    "contextNote": "使用上のニュアンスや注意点",
-    "noun": { "gender": "...", "plural": "...", "genitive": "..." },
-    "verb": {
-      "pastTense": "...", "pastParticiple": "...",
-      "conjugation": { ${conjugationNote} },
-      "irregular": true
-    },
-    "adjective": { "comparative": "...", "superlative": "..." }
+    "form": "translation",
+    "front": "${sourceLangName}のテキスト",
+    "back": "${targetLangName}のテキスト",
+    "wordLevel": "A1/A2/B1/B2/C1/C2のいずれか"
   }
 ]
-※該当しないフィールドはnullにしてください。`;
+※各入力につき1件生成してください。wordLevelはCEFR基準で推定してください。`;
 }
 
-function buildCollocationPrompt(
+function buildClozePrompt(
   itemList: string,
   sourceLangName: string,
-  targetLangName: string
+  targetLangName: string,
+  cardCount: number
 ): string {
-  return `あなたは多言語コーパスの専門家です。
-以下のキーワードを核として、${targetLangName}でよく使われるコロケーションを${sourceLangName}訳付きでJSON形式で返してください。
+  return `あなたは多言語教育の専門家です。
+以下の単語・フレーズを使った穴埋めカードを${cardCount}枚分生成してください。
 
-【キーワード】
+【入力】
 ${itemList}
 
+【手順】
+まず暗記対象の単語のCEFRレベルを判定してください。
+次に、そのレベルに応じた難易度ルールに従って例文を生成してください。
+
+【難易度ルール】
+
+■ 暗記対象がA1レベルの場合:
+  難易度の制限を適用しない
+  （使用できる語彙が少なすぎて例文が不自然になるため）
+
+■ 暗記対象がA2・B1・B2レベルの場合:
+  例文全体の難易度をA2〜B2の範囲に収めること
+
+■ 暗記対象がC1以上のレベルの場合:
+  例文中の暗記対象以外の単語は、暗記対象の一つ下のレベルまでに抑えること
+  例）暗記対象がC1 → 例文内の他の単語はB2以下
+  例）暗記対象がC2 → 例文内の他の単語はC1以下
+  ※ 暗記対象の単語自体は ___ で隠すため、
+     例文中で学習者が知らない単語が複数出現するリスクを最小化する
+
+【重要】
+- 暗記対象の単語は必ず ___ （アンダースコア3つ）で置き換えること
+- 例文は自然な${targetLangName}の文章にすること
+- 複数枚の場合は異なる文脈・用法の例文を生成すること
+- 単語単体のカードは生成せず、必ず例文形式にすること
+
 【出力形式】
+以下のJSON配列のみを返してください（マークダウン装飾不要）。
+※ frontには必ず「単語（${sourceLangName}での訳）」の形式で訳語を付けること
+※ 例: appropriate（適切な）/ grasp（把握する）/ foundation（基礎）
+
 [
   {
-    "type": "collocation",
-    "keyword": "核となるキーワード（${targetLangName}）",
-    "original": "コロケーション全体（${targetLangName}）",
-    "translation": "コロケーション全体（${sourceLangName}）",
-    "exampleSentence": "コロケーションを含む自然な例文（${targetLangName}）",
-    "contextNote": "どんな場面で使うか・文体（formal/informal）"
+    "form": "cloze",
+    "front": "穴埋めの答えとなる単語（訳語付き）例: appropriate（適切な）",
+    "back": "___ を含む穴埋め例文（${targetLangName}）",
+    "wordLevel": "暗記対象単語のCEFRレベル（A1/A2/B1/B2/C1/C2）",
+    "sentenceLevel": "例文全体のCEFRレベル（A1/A2/B1/B2/C1/C2）",
+    "contextNote": "この例文が使われる場面・文脈の説明"
   }
 ]
-※各キーワードにつき2〜4件のコロケーションを生成してください。
-以下のJSON配列のみを返してください（マークダウン装飾不要）。`;
-}
 
-function buildSentencePrompt(
-  itemList: string,
-  sourceLangName: string,
-  targetLangName: string
-): string {
-  return `あなたは外国語教育の専門家です。
-以下のテーマ・キーワードに基づいて実用的な${targetLangName}の例文を作成し、${sourceLangName}訳付きでJSON形式で返してください。
-
-【テーマ/キーワード】
-${itemList}
-
-【出力形式】
+【出力例】
+入力: appropriate（wordLevel判定: B2）
 [
   {
-    "type": "sentence",
-    "original": "例文（${sourceLangName}）",
-    "translation": "例文（${targetLangName}）",
-    "level": "A1/A2/B1/B2/C1/C2",
-    "contextNote": "場面・文体・使用シーン"
+    "form": "cloze",
+    "front": "appropriate（適切な）",
+    "back": "Please wear ___ clothes to the ceremony.",
+    "wordLevel": "B2",
+    "sentenceLevel": "B1",
+    "contextNote": "服装・マナーの文脈での使用例"
   }
-]
-※各テーマにつき2〜3件の例文を生成してください。
-以下のJSON配列のみを返してください（マークダウン装飾不要）。`;
-}
-
-/** 言語別の動詞活用テンプレートを返す */
-function getConjugationNote(targetLang: string): string {
-  const map: Record<string, string> = {
-    da: '"不定形のみ（人称変化なし）": "..."',
-    no: '"不定形のみ（人称変化なし）": "..."',
-    sv: '"不定形のみ（人称変化なし）": "..."',
-    fi: '"minä": "...", "sinä": "...", "hän": "...", "me": "...", "te": "...", "he": "..."',
-    is: '"ég": "...", "þú": "...", "hann/hún": "...", "við": "...", "þið": "...", "þeir": "..."',
-    de: '"ich": "...", "du": "...", "er": "...", "wir": "...", "ihr": "...", "sie": "..."',
-    fr: '"je": "...", "tu": "...", "il": "...", "nous": "...", "vous": "...", "ils": "..."',
-    es: '"yo": "...", "tú": "...", "él": "...", "nosotros": "...", "vosotros": "...", "ellos": "..."',
-    it: '"io": "...", "tu": "...", "lui": "...", "noi": "...", "voi": "...", "loro": "..."',
-    en: '"三人称単数(he/she/it)": "...(s付加規則と例外)"',
-  };
-  return map[targetLang] ?? '"各人称": "..."';
+]`;
 }
 
 /** 入力テキストを配列に変換（カンマ・改行区切り）*/

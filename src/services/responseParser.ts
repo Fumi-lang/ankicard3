@@ -1,4 +1,4 @@
-import type { ImportedCardData, CardType, CardExtraInfo } from '../types';
+import type { ImportedCardData, CardForm, CardExtraInfo } from '../types';
 
 /**
  * ClaudeのレスポンステキストからJSONを抽出してImportedCardData[]に変換する
@@ -27,7 +27,7 @@ export function parseClaudeResponse(text: string): ImportedCardData[] {
       return mapToCardData(item as Record<string, unknown>);
     } catch {
       return {
-        cardType: 'word' as CardType,
+        cardForm: 'translation' as CardForm,
         frontText: '',
         backText: '',
         isValid: false,
@@ -63,17 +63,19 @@ function extractJSON(text: string): string | null {
 
 /** JSONオブジェクトをImportedCardDataにマッピング */
 function mapToCardData(item: Record<string, unknown>): ImportedCardData {
-  const type = String(item.type ?? 'word');
-  const cardType: CardType = (['word', 'collocation', 'sentence'] as CardType[]).includes(type as CardType)
-    ? (type as CardType)
-    : 'word';
+  // form フィールドから cardForm を判定（旧 type フィールドも互換サポート）
+  const form = String(item.form ?? item.type ?? 'translation').toLowerCase();
+  const cardForm: CardForm = (['translation', 'cloze'] as CardForm[]).includes(form as CardForm)
+    ? (form as CardForm)
+    : 'translation';
 
-  const frontText = String(item.original ?? item.front ?? item.frontText ?? '').trim();
-  const backText = String(item.translation ?? item.back ?? item.backText ?? '').trim();
+  // front/back は新フォーマット、original/translation は旧フォーマット互換
+  const frontText = String(item.front ?? item.original ?? item.frontText ?? '').trim();
+  const backText = String(item.back ?? item.translation ?? item.backText ?? '').trim();
 
   if (!frontText || !backText) {
     return {
-      cardType,
+      cardForm,
       frontText,
       backText,
       isValid: false,
@@ -83,6 +85,8 @@ function mapToCardData(item: Record<string, unknown>): ImportedCardData {
 
   const extraInfo: Partial<CardExtraInfo> = {};
 
+  if (item.wordLevel) extraInfo.wordLevel = String(item.wordLevel);
+  if (item.sentenceLevel) extraInfo.sentenceLevel = String(item.sentenceLevel);
   if (item.partOfSpeech) extraInfo.partOfSpeech = String(item.partOfSpeech);
   if (item.pronunciation) extraInfo.pronunciation = String(item.pronunciation);
   if (item.exampleSentence) extraInfo.exampleSentence = String(item.exampleSentence);
@@ -120,7 +124,7 @@ function mapToCardData(item: Record<string, unknown>): ImportedCardData {
   }
 
   return {
-    cardType,
+    cardForm,
     frontText,
     backText,
     extraInfo: Object.keys(extraInfo).length > 0 ? extraInfo : undefined,

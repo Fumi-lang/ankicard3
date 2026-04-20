@@ -1,4 +1,4 @@
-import type { ImportedCardData, CardType, DeckExportData } from '../types';
+import type { ImportedCardData, CardForm, DeckExportData } from '../types';
 
 /** MemoryFlow独自フォーマットかどうかを判定 */
 export function isMemoryFlowFormat(data: unknown): data is DeckExportData {
@@ -11,7 +11,7 @@ export function isMemoryFlowFormat(data: unknown): data is DeckExportData {
  * JSON文字列を解析してImportedCardData[]に変換する
  *
  * 対応フォーマット:
- * 1. Claude出力形式: [{original, translation, type, ...}]
+ * 1. Claude出力形式: [{form, front, back, ...}]
  * 2. 配列形式: [{front, back}]
  * 3. シンプルオブジェクト: {"単語": "訳語", ...}
  * 4. MemoryFlow形式: DeckExportData（呼び出し元で別処理）
@@ -28,7 +28,7 @@ export function parseJSONCards(text: string): { cards: ImportedCardData[]; isMem
   if (isMemoryFlowFormat(parsed)) {
     return {
       cards: parsed.cards.map((c) => ({
-        cardType: c.cardType,
+        cardForm: (c as Record<string, unknown>).cardForm as CardForm ?? 'translation',
         frontText: c.frontText,
         backText: c.backText,
         extraInfo: c.extraInfo,
@@ -49,7 +49,7 @@ export function parseJSONCards(text: string): { cards: ImportedCardData[]; isMem
     const entries = Object.entries(parsed as Record<string, unknown>);
     return {
       cards: entries.map(([key, val], i) => ({
-        cardType: 'word' as CardType,
+        cardForm: 'translation' as CardForm,
         frontText: key.trim(),
         backText: String(val).trim(),
         isValid: !!(key.trim() && String(val).trim()),
@@ -64,20 +64,21 @@ export function parseJSONCards(text: string): { cards: ImportedCardData[]; isMem
 
 function mapJSONItem(item: unknown, index: number): ImportedCardData {
   if (!item || typeof item !== 'object') {
-    return { cardType: 'word', frontText: '', backText: '', isValid: false, errorMessage: `行 ${index + 1}: 無効なデータ` };
+    return { cardForm: 'translation', frontText: '', backText: '', isValid: false, errorMessage: `行 ${index + 1}: 無効なデータ` };
   }
 
   const obj = item as Record<string, unknown>;
-  const typeRaw = String(obj.type ?? 'word').toLowerCase();
-  const validTypes: CardType[] = ['word', 'collocation', 'sentence'];
-  const cardType: CardType = validTypes.includes(typeRaw as CardType) ? (typeRaw as CardType) : 'word';
+  // form フィールドから cardForm を判定（旧 type フィールドも互換サポート）
+  const formRaw = String(obj.form ?? obj.type ?? 'translation').toLowerCase();
+  const validForms: CardForm[] = ['translation', 'cloze'];
+  const cardForm: CardForm = validForms.includes(formRaw as CardForm) ? (formRaw as CardForm) : 'translation';
 
-  const frontText = String(obj.original ?? obj.front ?? obj.frontText ?? obj.question ?? '').trim();
-  const backText = String(obj.translation ?? obj.back ?? obj.backText ?? obj.answer ?? '').trim();
+  const frontText = String(obj.front ?? obj.original ?? obj.frontText ?? obj.question ?? '').trim();
+  const backText = String(obj.back ?? obj.translation ?? obj.backText ?? obj.answer ?? '').trim();
 
   if (!frontText || !backText) {
-    return { cardType, frontText, backText, isValid: false, errorMessage: `行 ${index + 1}: 表面または裏面が空です` };
+    return { cardForm, frontText, backText, isValid: false, errorMessage: `行 ${index + 1}: 表面または裏面が空です` };
   }
 
-  return { cardType, frontText, backText, isValid: true };
+  return { cardForm, frontText, backText, isValid: true };
 }

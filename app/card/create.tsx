@@ -9,15 +9,15 @@ import { v4 as uuidv4 } from 'uuid';
 import { useCardStore } from '../../src/stores/cardStore';
 import { useDeckStore } from '../../src/stores/deckStore';
 import { useSettingsStore } from '../../src/stores/settingsStore';
-import { CardTypeSelector } from '../../src/components/CardTypeSelector';
+import { CardFormSelector } from '../../src/components/CardTypeSelector';
 import { ClaudeResponseParser } from '../../src/components/ClaudeResponseParser';
 import { buildPrompt, parseInputItems } from '../../src/services/promptBuilder';
 import { getInitialSRS } from '../../src/services/srs';
-import type { CardType, Card, ImportedCardData } from '../../src/types';
+import type { CardForm, Card, ImportedCardData } from '../../src/types';
 
 type AddMethod = 'manual' | 'claude' | null;
 
-/** カード作成画面（3つの追加方法を統合）*/
+/** カード作成画面（翻訳・穴埋めの2フォーム対応）*/
 export default function CreateCardScreen() {
   const { deckId } = useLocalSearchParams<{ deckId: string }>();
   const { t } = useTranslation();
@@ -30,7 +30,8 @@ export default function CreateCardScreen() {
   const targetLang = deck?.targetLang ?? defaultTargetLang;
 
   const [method, setMethod] = useState<AddMethod>(null);
-  const [cardType, setCardType] = useState<CardType>('word');
+  const [cardForm, setCardForm] = useState<CardForm>('translation');
+  const [cardCount, setCardCount] = useState(5);
 
   // 手動入力
   const [frontText, setFrontText] = useState('');
@@ -51,7 +52,7 @@ export default function CreateCardScreen() {
       const card: Card = {
         id: uuidv4(),
         deckId,
-        cardType,
+        cardForm,
         frontText: frontText.trim(),
         backText: backText.trim(),
         source: 'manual',
@@ -71,7 +72,7 @@ export default function CreateCardScreen() {
   const handleGeneratePrompt = () => {
     const items = parseInputItems(claudeInput);
     if (items.length === 0) return;
-    const prompt = buildPrompt(cardType, items, sourceLang, targetLang);
+    const prompt = buildPrompt(cardForm, items, sourceLang, targetLang, cardCount);
     setGeneratedPrompt(prompt);
   };
 
@@ -80,7 +81,6 @@ export default function CreateCardScreen() {
     try {
       await navigator.clipboard.writeText(generatedPrompt);
     } catch {
-      // フォールバック
       const ta = document.createElement('textarea');
       ta.value = generatedPrompt;
       document.body.appendChild(ta);
@@ -100,7 +100,7 @@ export default function CreateCardScreen() {
       const cards: Card[] = parsedCards.map((c) => ({
         id: uuidv4(),
         deckId,
-        cardType: c.cardType,
+        cardForm: c.cardForm,
         frontText: c.frontText,
         backText: c.backText,
         extraInfo: c.extraInfo as Card['extraInfo'],
@@ -120,21 +120,18 @@ export default function CreateCardScreen() {
   };
 
   const getFrontLabel = (): string => {
-    if (cardType === 'word') return t('card.frontWord');
-    if (cardType === 'collocation') return t('card.frontCollocation');
-    return t('card.frontSentence');
+    if (cardForm === 'cloze') return t('card.frontCloze');
+    return t('card.frontTranslation');
   };
 
   const getBackLabel = (): string => {
-    if (cardType === 'word') return t('card.backWord');
-    if (cardType === 'collocation') return t('card.backCollocation');
-    return t('card.backSentence');
+    if (cardForm === 'cloze') return t('card.backCloze');
+    return t('card.backTranslation');
   };
 
   const getInputPlaceholder = (): string => {
-    if (cardType === 'word') return t('claude.wordInput');
-    if (cardType === 'collocation') return t('claude.collocationInput');
-    return t('claude.sentenceInput');
+    if (cardForm === 'cloze') return t('claude.clozeInput');
+    return t('claude.translationInput');
   };
 
   return (
@@ -155,10 +152,14 @@ export default function CreateCardScreen() {
           </View>
         )}
 
-        {/* カードタイプ選択 */}
+        {/* カード形式選択 */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>{t('card.cardType')}</Text>
-          <CardTypeSelector selected={cardType} onChange={setCardType} />
+          <Text style={styles.sectionLabel}>{t('card.cardForm')}</Text>
+          <CardFormSelector selected={cardForm} onChange={(f) => {
+            setCardForm(f);
+            setGeneratedPrompt('');
+            setParsedCards([]);
+          }} />
         </View>
 
         {/* 追加方法選択 */}
@@ -194,7 +195,7 @@ export default function CreateCardScreen() {
               style={styles.input}
               value={backText}
               onChangeText={setBackText}
-              placeholder="..."
+              placeholder={cardForm === 'cloze' ? '例: The ___ is shining today.' : '...'}
             />
             <TouchableOpacity
               style={[styles.saveButton, (!frontText.trim() || !backText.trim()) && styles.disabled]}
@@ -213,6 +214,25 @@ export default function CreateCardScreen() {
         {method === 'claude' && (
           <View style={styles.section}>
             <Text style={styles.stepLabel}>{t('claude.step1')}</Text>
+
+            {/* 生成枚数スライダー */}
+            <View style={styles.sliderRow}>
+              <Text style={styles.inputLabel}>{t('claude.cardCountLabel')}: {cardCount}枚</Text>
+              {/* @ts-ignore — Expo Web では <input type="range"> が有効 */}
+              <input
+                type="range"
+                min={1}
+                max={10}
+                value={cardCount}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCardCount(Number(e.target.value))}
+                style={{ width: '100%', accentColor: '#4F46E5', cursor: 'pointer', marginTop: 4 }}
+              />
+              <View style={styles.sliderLabels}>
+                <Text style={styles.sliderLabel}>1</Text>
+                <Text style={styles.sliderLabel}>10</Text>
+              </View>
+            </View>
+
             <TextInput
               style={[styles.input, styles.multilineInput]}
               value={claudeInput}
@@ -313,6 +333,11 @@ const styles = StyleSheet.create({
   saveButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
   disabled: { opacity: 0.5 },
   stepLabel: { fontSize: 13, fontWeight: '700', color: '#64748B' },
+  sliderRow: { gap: 4 },
+  sliderLabels: {
+    flexDirection: 'row', justifyContent: 'space-between',
+  },
+  sliderLabel: { fontSize: 11, color: '#94A3B8' },
   generateButton: {
     backgroundColor: '#10B981', borderRadius: 10,
     paddingVertical: 12, alignItems: 'center',

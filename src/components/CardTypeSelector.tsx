@@ -1,35 +1,38 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import type { CardType } from '../types';
+import type { CardForm } from '../types';
 
-interface CardTypeSelectorProps {
-  selected: CardType;
-  onChange: (type: CardType) => void;
+interface CardFormSelectorProps {
+  selected: CardForm;
+  onChange: (form: CardForm) => void;
 }
 
-const TYPES: CardType[] = ['word', 'collocation', 'sentence'];
+const FORMS: CardForm[] = ['translation', 'cloze'];
 
-/** カードタイプ選択UI（タブ形式）*/
-export const CardTypeSelector: React.FC<CardTypeSelectorProps> = ({ selected, onChange }) => {
+/** カードフォーム選択UI（タブ形式）*/
+export const CardFormSelector: React.FC<CardFormSelectorProps> = ({ selected, onChange }) => {
   const { t } = useTranslation();
 
   return (
     <View style={styles.container}>
-      {TYPES.map((type) => (
+      {FORMS.map((form) => (
         <TouchableOpacity
-          key={type}
-          style={[styles.tab, selected === type && styles.activeTab]}
-          onPress={() => onChange(type)}
+          key={form}
+          style={[styles.tab, selected === form && styles.activeTab]}
+          onPress={() => onChange(form)}
         >
-          <Text style={[styles.tabText, selected === type && styles.activeText]}>
-            {t(`cardType.${type}`)}
+          <Text style={[styles.tabText, selected === form && styles.activeText]}>
+            {t(`cardType.${form}`)}
           </Text>
         </TouchableOpacity>
       ))}
     </View>
   );
 };
+
+// 後方互換エイリアス
+export const CardTypeSelector = CardFormSelector;
 
 const styles = StyleSheet.create({
   container: {

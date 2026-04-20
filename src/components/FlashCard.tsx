@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Platform, ScrollView
+  View, Text, TouchableOpacity, StyleSheet, ScrollView
 } from 'react-native';
 import Animated, {
   useSharedValue, useAnimatedStyle, withTiming, interpolate, Extrapolation
 } from 'react-native-reanimated';
 import type { Card } from '../types';
-import { CardTypeBadge } from './CardTypeBadge';
+import { CardFormBadge } from './CardTypeBadge';
 import { SpeechButton } from './SpeechButton';
 import { useTranslation } from 'react-i18next';
 
@@ -17,6 +17,27 @@ interface FlashCardProps {
   sourceLang: string;
   targetLang: string;
 }
+
+/**
+ * ___（アンダースコア3つ）を穴埋めボックスとして描画するコンポーネント
+ * React Native では <Text> の入れ子でインラインスタイルを実現する
+ */
+const TextWithBlanks: React.FC<{ text: string; style?: object }> = ({ text, style }) => {
+  const parts = text.split('___');
+  if (parts.length === 1) return <Text style={style}>{text}</Text>;
+  return (
+    <Text style={style}>
+      {parts.map((part, i) => (
+        <React.Fragment key={i}>
+          {part}
+          {i < parts.length - 1 && (
+            <Text style={styles.blankBox}>{'________'}</Text>
+          )}
+        </React.Fragment>
+      ))}
+    </Text>
+  );
+};
 
 /** フラッシュカードUI（3Dフリップアニメーション付き）*/
 export const FlashCard: React.FC<FlashCardProps> = ({
@@ -51,6 +72,12 @@ export const FlashCard: React.FC<FlashCardProps> = ({
     };
   });
 
+  // CEFR レベル
+  // 表面: wordLevel を優先表示（穴埋めカードでは暗記対象単語のレベルが最重要）
+  const frontLevel = card.extraInfo?.wordLevel ?? card.extraInfo?.sentenceLevel;
+  const wordLevel = card.extraInfo?.wordLevel;
+  const sentenceLevel = card.extraInfo?.sentenceLevel;
+
   return (
     <TouchableOpacity
       style={styles.container}
@@ -60,22 +87,40 @@ export const FlashCard: React.FC<FlashCardProps> = ({
       {/* 表面：学習言語（backText = targetLang のテキスト）を表示 */}
       <Animated.View style={[styles.card, styles.front, frontStyle]}>
         <View style={styles.cardContent}>
-          <CardTypeBadge cardType={card.cardType} />
+          <View style={styles.badgeRow}>
+            <CardFormBadge cardForm={card.cardForm} />
+            {frontLevel && <Text style={styles.levelBadge}>{frontLevel}</Text>}
+          </View>
           <View style={styles.textRow}>
-            <Text style={styles.mainText}>{card.backText}</Text>
+            <TextWithBlanks text={card.backText} style={styles.mainText} />
             <SpeechButton text={card.backText} lang={targetLang} />
           </View>
           <Text style={styles.hint}>{t('study.tapToReveal')}</Text>
         </View>
       </Animated.View>
 
-      {/* 裏面：母語（frontText = sourceLang のテキスト）を表示 */}
+      {/* 裏面：母語 or 答え（frontText = sourceLang のテキスト）を表示 */}
       <Animated.View style={[styles.card, styles.back, backStyle]}>
         <ScrollView style={styles.scrollArea} contentContainerStyle={styles.cardContent}>
-          <CardTypeBadge cardType={card.cardType} />
+          <View style={styles.badgeRow}>
+            <CardFormBadge cardForm={card.cardForm} />
+            {/* 裏面では wordLevel と sentenceLevel を両方表示 */}
+            {wordLevel && (
+              <Text style={styles.levelBadge}>単語 {wordLevel}</Text>
+            )}
+            {sentenceLevel && (
+              <Text style={[styles.levelBadge, styles.sentenceLevelBadge]}>文 {sentenceLevel}</Text>
+            )}
+            {/* どちらも存在しない場合（翻訳カードで単一レベルのみ）*/}
+            {!wordLevel && !sentenceLevel && frontLevel && (
+              <Text style={styles.levelBadge}>{frontLevel}</Text>
+            )}
+          </View>
           <View style={styles.textRow}>
             <Text style={styles.mainText}>{card.frontText}</Text>
-            <SpeechButton text={card.frontText} lang={sourceLang} />
+            {card.cardForm === 'translation' && (
+              <SpeechButton text={card.frontText} lang={sourceLang} />
+            )}
           </View>
           {card.extraInfo?.partOfSpeech && (
             <Text style={styles.meta}>品詞: {card.extraInfo.partOfSpeech}</Text>
@@ -152,12 +197,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  front: {
-    zIndex: 1,
-  },
-  back: {
-    zIndex: 0,
-  },
+  front: { zIndex: 1 },
+  back: { zIndex: 0 },
   scrollArea: {
     flex: 1,
     borderRadius: 16,
@@ -167,6 +208,25 @@ const styles = StyleSheet.create({
     gap: 12,
     minHeight: '100%',
     justifyContent: 'center',
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  levelBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#059669',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  sentenceLevelBadge: {
+    color: '#0891B2',
+    backgroundColor: '#ECFEFF',
   },
   textRow: {
     flexDirection: 'row',
@@ -180,6 +240,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1E293B',
     textAlign: 'center',
+  },
+  blankBox: {
+    color: '#4F46E5',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+    letterSpacing: 2,
   },
   hint: {
     fontSize: 12,

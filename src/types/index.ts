@@ -1,7 +1,7 @@
 // アプリ全体で使用する型定義
 
-/** カードタイプ: 単語・コロケーション・例文 */
-export type CardType = 'word' | 'collocation' | 'sentence';
+/** カードフォーム: 翻訳・穴埋め */
+export type CardForm = 'translation' | 'cloze';
 
 /** カードの作成元 */
 export type CardSource = 'manual' | 'claude' | 'import';
@@ -29,10 +29,14 @@ export interface CardExtraInfo {
   partOfSpeech?: string;
   pronunciation?: string;
   exampleSentence?: string;
-  /** コロケーション例（cardType='word'の場合）*/
+  /** コロケーション例 */
   collocations?: string[];
   /** 使用文脈・ニュアンス補足 */
   contextNote?: string;
+  /** 単語レベル (CEFR: A1/A2/B1/B2/C1/C2) */
+  wordLevel?: string;
+  /** 文レベル (CEFR: A1/A2/B1/B2/C1/C2) */
+  sentenceLevel?: string;
   noun?: {
     gender?: string;
     plural?: string;
@@ -55,7 +59,7 @@ export interface CardExtraInfo {
 export interface Card {
   id: string;
   deckId: string;
-  cardType: CardType;
+  cardForm: CardForm;
   frontText: string;
   backText: string;
   extraInfo?: CardExtraInfo;
@@ -82,7 +86,7 @@ export interface DeckExportData {
 
 /** インポート時のカードデータ（バリデーション結果含む）*/
 export interface ImportedCardData {
-  cardType: CardType;
+  cardForm: CardForm;
   frontText: string;
   backText: string;
   extraInfo?: Partial<CardExtraInfo>;

@@ -1,32 +1,34 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import type { CardType } from '../types';
+import type { CardForm } from '../types';
 
-/** カードタイプ別カラー */
-const TYPE_COLORS: Record<CardType, { bg: string; text: string }> = {
-  word:        { bg: '#EEF2FF', text: '#4F46E5' },
-  collocation: { bg: '#ECFEFF', text: '#0891B2' },
-  sentence:    { bg: '#ECFDF5', text: '#059669' },
+/** カードフォーム別カラー */
+const FORM_COLORS: Record<CardForm, { bg: string; text: string }> = {
+  translation: { bg: '#EEF2FF', text: '#4F46E5' },
+  cloze:       { bg: '#ECFEFF', text: '#0891B2' },
 };
 
-interface CardTypeBadgeProps {
-  cardType: CardType;
+interface CardFormBadgeProps {
+  cardForm: CardForm;
 }
 
-/** カードタイプを示すバッジコンポーネント */
-export const CardTypeBadge: React.FC<CardTypeBadgeProps> = ({ cardType }) => {
+/** カードフォームを示すバッジコンポーネント */
+export const CardFormBadge: React.FC<CardFormBadgeProps> = ({ cardForm }) => {
   const { t } = useTranslation();
-  const colors = TYPE_COLORS[cardType];
+  const colors = FORM_COLORS[cardForm] ?? FORM_COLORS.translation;
 
   return (
     <View style={[styles.badge, { backgroundColor: colors.bg }]}>
       <Text style={[styles.text, { color: colors.text }]}>
-        {t(`cardType.${cardType}`)}
+        {t(`cardType.${cardForm}`)}
       </Text>
     </View>
   );
 };
+
+// 後方互換エイリアス
+export const CardTypeBadge = CardFormBadge;
 
 const styles = StyleSheet.create({
   badge: {

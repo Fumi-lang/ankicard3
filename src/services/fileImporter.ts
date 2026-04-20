@@ -1,4 +1,4 @@
-import type { ImportResult, ImportedCardData } from '../types';
+import type { ImportResult, ImportedCardData, CardForm } from '../types';
 import { parseCSV } from './csvParser';
 import { parseJSONCards } from './jsonParser';
 
@@ -19,7 +19,8 @@ export function pickFile(): Promise<File | null> {
 /** ファイルを解析してImportResultを返す */
 export async function importFile(
   file: File,
-  delimiter?: string
+  delimiter?: string,
+  defaultCardForm: CardForm = 'translation'
 ): Promise<ImportResult> {
   const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
 
@@ -30,7 +31,7 @@ export async function importFile(
     case 'csv':
     case 'tsv':
     case 'txt': {
-      cards = await parseCSV(file);
+      cards = await parseCSV(file, defaultCardForm);
       fileType = 'csv';
       break;
     }
@@ -96,11 +97,11 @@ export function parseTextPairs(
     let match: RegExpMatchArray | null;
 
     if ((match = line.match(sepPattern))) {
-      results.push({ cardType: 'word', frontText: match[1].trim(), backText: match[2].trim(), isValid: true });
+      results.push({ cardForm: 'translation', frontText: match[1].trim(), backText: match[2].trim(), isValid: true });
     } else if ((match = line.match(numberedPattern))) {
-      results.push({ cardType: 'word', frontText: match[1].trim(), backText: match[2].trim(), isValid: true });
+      results.push({ cardForm: 'translation', frontText: match[1].trim(), backText: match[2].trim(), isValid: true });
     } else if ((match = line.match(tabPattern))) {
-      results.push({ cardType: 'word', frontText: match[1].trim(), backText: match[2].trim(), isValid: true });
+      results.push({ cardForm: 'translation', frontText: match[1].trim(), backText: match[2].trim(), isValid: true });
     }
   }
 

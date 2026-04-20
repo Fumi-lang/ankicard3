@@ -12,8 +12,9 @@ import { useSettingsStore } from '../../src/stores/settingsStore';
 import { pickFile, importFile } from '../../src/services/fileImporter';
 import { importDeckFromExport, readDeckExportFile } from '../../src/services/deckImporter';
 import { ImportPreview } from '../../src/components/ImportPreview';
+import { CardFormSelector } from '../../src/components/CardTypeSelector';
 import { getInitialSRS } from '../../src/services/srs';
-import type { Card, ImportResult } from '../../src/types';
+import type { Card, CardForm, ImportResult } from '../../src/types';
 
 const DELIMITERS = [
   { key: '-', label: 'ハイフン (-)' },
@@ -37,6 +38,7 @@ export default function ImportScreen() {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [delimiter, setDelimiter] = useState('-');
+  const [cardForm, setCardForm] = useState<CardForm>('translation');
   const [isSaving, setIsSaving] = useState(false);
 
   const handlePickFile = async () => {
@@ -44,7 +46,7 @@ export default function ImportScreen() {
     if (!file) return;
     setIsLoading(true);
     try {
-      const importResult = await importFile(file, delimiter);
+      const importResult = await importFile(file, delimiter, cardForm);
       setResult(importResult);
     } catch (e) {
       Alert.alert('エラー', t('errors.invalidFile') + ': ' + String(e));
@@ -62,7 +64,7 @@ export default function ImportScreen() {
       const cards: Card[] = validCards.map((c) => ({
         id: uuidv4(),
         deckId,
-        cardType: c.cardType,
+        cardForm: c.cardForm,
         frontText: c.frontText,
         backText: c.backText,
         extraInfo: c.extraInfo as Card['extraInfo'],
@@ -97,6 +99,15 @@ export default function ImportScreen() {
             <Text style={styles.deckBadgeText}>📚 {deck.name}</Text>
           </View>
         )}
+
+        {/* カード形式選択 */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>{t('import.selectCardForm')}</Text>
+          <CardFormSelector selected={cardForm} onChange={(f) => {
+            setCardForm(f);
+            setResult(null);
+          }} />
+        </View>
 
         {/* 区切り文字選択 */}
         <View style={styles.section}>

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import type { ImportedCardData } from '../types';
-import { CardTypeBadge } from './CardTypeBadge';
+import { CardFormBadge } from './CardTypeBadge';
 import { SpeechButton } from './SpeechButton';
 
 interface ImportPreviewProps {
@@ -31,7 +31,7 @@ export const ImportPreview: React.FC<ImportPreviewProps> = ({ cards, targetLang,
         scrollEnabled={false}
         renderItem={({ item }) => (
           <View style={styles.cardRow}>
-            <CardTypeBadge cardType={item.cardType} />
+            <CardFormBadge cardForm={item.cardForm} />
             <View style={styles.textContainer}>
               <View style={styles.textRow}>
                 <Text style={styles.front} numberOfLines={2}>{item.frontText}</Text>

@@ -16,6 +16,20 @@ export class MemoryFlowDB extends Dexie {
       studyLogs: 'id, cardId, reviewedAt',
       goals:     'id, deckId, startDate',
     });
+    // v2: cardType → cardForm ('translation' | 'cloze')
+    this.version(2).stores({
+      decks:     'id, name, sourceLang, targetLang, createdAt',
+      cards:     'id, deckId, cardForm, nextReview, source, createdAt',
+      studyLogs: 'id, cardId, reviewedAt',
+      goals:     'id, deckId, startDate',
+    }).upgrade((trans) => {
+      return trans.table('cards').toCollection().modify((card: Record<string, unknown>) => {
+        if (!card.cardForm) {
+          card.cardForm = 'translation';
+        }
+        delete card.cardType;
+      });
+    });
   }
 }
 
