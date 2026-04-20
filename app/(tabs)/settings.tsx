@@ -133,10 +133,10 @@ export default function SettingsScreen() {
           <Text style={styles.sectionTitle}>{t('settings.langSettings')}</Text>
           <View style={styles.card}>
             <Text style={styles.rowLabel}>{t('settings.defaultSourceLang')}</Text>
-            <LangPicker value={defaultSourceLang} onChange={setDefaultSourceLang} />
+            <LangPicker value={defaultSourceLang} onChange={setDefaultSourceLang} appLanguage={appLanguage} />
             <View style={styles.divider} />
             <Text style={styles.rowLabel}>{t('settings.defaultTargetLang')}</Text>
-            <LangPicker value={defaultTargetLang} onChange={setDefaultTargetLang} />
+            <LangPicker value={defaultTargetLang} onChange={setDefaultTargetLang} appLanguage={appLanguage} />
           </View>
         </View>
 
@@ -163,7 +163,11 @@ export default function SettingsScreen() {
   );
 }
 
-const LangPicker: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => (
+const LangPicker: React.FC<{
+  value: string;
+  onChange: (v: string) => void;
+  appLanguage: AppLanguage;
+}> = ({ value, onChange, appLanguage }) => (
   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ height: 40, marginTop: 8 }}>
     {SUPPORTED_LANGUAGES.map((lang) => (
       <TouchableOpacity
@@ -172,7 +176,7 @@ const LangPicker: React.FC<{ value: string; onChange: (v: string) => void }> = (
         onPress={() => onChange(lang.code)}
       >
         <Text style={[styles.langChipText, value === lang.code && styles.langChipTextActive]}>
-          {lang.name}
+          {appLanguage === 'en' ? lang.nameEn : lang.name}
         </Text>
       </TouchableOpacity>
     ))}

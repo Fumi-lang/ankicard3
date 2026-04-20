@@ -9,14 +9,14 @@ import { useDeck } from '../../src/hooks/useDeck';
 import { DeckCard } from '../../src/components/DeckCard';
 import { getDueCards } from '../../src/services/database';
 import { SUPPORTED_LANGUAGES } from '../../src/utils/speechLocale';
-import type { Deck } from '../../src/types';
+import type { Deck, AppLanguage } from '../../src/types';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 
 /** デッキ一覧画面 */
 export default function DecksScreen() {
   const { t } = useTranslation();
   const { decks, isLoading, fetchDecks, createDeck, deleteDeck } = useDeck();
-  const { defaultSourceLang, defaultTargetLang } = useSettingsStore();
+  const { defaultSourceLang, defaultTargetLang, appLanguage } = useSettingsStore();
 
   const [dueCounts, setDueCounts] = useState<Record<string, number>>({});
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -115,10 +115,10 @@ export default function DecksScreen() {
             />
 
             <Text style={styles.inputLabel}>{t('deck.sourceLang')}</Text>
-            <LangPicker value={sourceLang} onChange={setSourceLang} />
+            <LangPicker value={sourceLang} onChange={setSourceLang} appLanguage={appLanguage} />
 
             <Text style={styles.inputLabel}>{t('deck.targetLang')}</Text>
-            <LangPicker value={targetLang} onChange={setTargetLang} />
+            <LangPicker value={targetLang} onChange={setTargetLang} appLanguage={appLanguage} />
 
             <View style={styles.modalButtons}>
               <TouchableOpacity
@@ -143,7 +143,11 @@ export default function DecksScreen() {
 }
 
 /** 言語選択ピッカー */
-const LangPicker: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => {
+const LangPicker: React.FC<{
+  value: string;
+  onChange: (v: string) => void;
+  appLanguage: AppLanguage;
+}> = ({ value, onChange, appLanguage }) => {
   return (
     <View style={styles.langPicker}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -154,7 +158,7 @@ const LangPicker: React.FC<{ value: string; onChange: (v: string) => void }> = (
             onPress={() => onChange(lang.code)}
           >
             <Text style={[styles.langChipText, value === lang.code && styles.langChipTextActive]}>
-              {lang.name}
+              {appLanguage === 'en' ? lang.nameEn : lang.name}
             </Text>
           </TouchableOpacity>
         ))}
