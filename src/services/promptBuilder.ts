@@ -53,7 +53,8 @@ function buildClozePrompt(
   cardCount: number
 ): string {
   return `あなたは多言語教育の専門家です。
-以下の単語・フレーズを使った穴埋めカードを${cardCount}枚分生成してください。
+以下の単語・フレーズを使った穴埋めカードを、
+1つの単語・フレーズにつき${cardCount}枚ずつ生成してください。
 
 【入力】
 ${itemList}
