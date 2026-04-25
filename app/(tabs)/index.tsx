@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView
+  View, Text, ScrollView, TouchableOpacity, StyleSheet
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useDeckStore } from '../../src/stores/deckStore';
@@ -60,7 +61,7 @@ export default function HomeScreen() {
   const maxCount = Math.max(...Object.values(weeklyData), 1);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         {/* ヘッダー */}
         <View style={styles.header}>

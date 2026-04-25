@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, TouchableOpacity, Pressable
+  View, Text, StyleSheet, TouchableOpacity, Pressable
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useStudySession } from '../../../src/hooks/useStudySession';
@@ -12,6 +13,7 @@ import { getDeckById } from '../../../src/services/database';
 import { FlashCard } from '../../../src/components/FlashCard';
 import { DifficultyButtons } from '../../../src/components/DifficultyButtons';
 import { MotivationBanner } from '../../../src/components/MotivationBanner';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Deck, StudyQuality } from '../../../src/types';
 
 /** 応援バナー領域の高さ（常にこの分の空間を確保する）*/
@@ -32,6 +34,8 @@ export default function StudyScreen() {
 
   const { getEstimates } = useSpacedRepetition();
   const { getSessionMessage } = useMotivation();
+
+  const insets = useSafeAreaInsets();
 
   const [deck, setDeck] = useState<Deck | null>(null);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
@@ -168,13 +172,15 @@ export default function StudyScreen() {
 
       {/* 難易度ボタン（タップ範囲外・答え表示後のみ）*/}
       {isFlipped ? (
-        <DifficultyButtons
-          estimates={estimates}
-          onAnswer={handleAnswer}
-          disabled={isAnswering}
-        />
+        <View style={{ paddingBottom: insets.bottom }}>
+          <DifficultyButtons
+            estimates={estimates}
+            onAnswer={handleAnswer}
+            disabled={isAnswering}
+          />
+        </View>
       ) : (
-        <View style={styles.flipHint} />
+        <View style={{ height: Math.max(insets.bottom, 16) }} />
       )}
     </SafeAreaView>
   );
