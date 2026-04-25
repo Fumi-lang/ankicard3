@@ -30,6 +30,17 @@ export class MemoryFlowDB extends Dexie {
         delete card.cardType;
       });
     });
+    // v3: memo フィールドを追加（既存カードにデフォルト '' をセット）
+    this.version(3).stores({
+      decks:     'id, name, sourceLang, targetLang, createdAt',
+      cards:     'id, deckId, cardForm, nextReview, source, createdAt',
+      studyLogs: 'id, cardId, reviewedAt',
+      goals:     'id, deckId, startDate',
+    }).upgrade((trans) => {
+      return trans.table('cards').toCollection().modify((card: Record<string, unknown>) => {
+        if (card.memo === undefined) card.memo = '';
+      });
+    });
   }
 }
 

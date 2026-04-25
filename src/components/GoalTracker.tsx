@@ -7,10 +7,12 @@ import { diffDays, today } from '../utils/dateUtils';
 
 interface GoalTrackerProps {
   goal: Goal;
+  /** 対象デッキ名。null = 全デッキ */
+  deckName?: string | null;
 }
 
 /** 目標達成トラッカー */
-export const GoalTracker: React.FC<GoalTrackerProps> = ({ goal }) => {
+export const GoalTracker: React.FC<GoalTrackerProps> = ({ goal, deckName }) => {
   const { t } = useTranslation();
 
   const progress = Math.min(1, goal.wordsLearned / goal.targetWords);
@@ -20,8 +22,16 @@ export const GoalTracker: React.FC<GoalTrackerProps> = ({ goal }) => {
   const remaining = goal.targetWords - goal.wordsLearned;
   const daysLeft = Math.max(0, goal.targetDays - elapsed);
 
+  // deckName が undefined の場合はプロップ未指定（表示しない）
+  // null または文字列の場合は表示する
+  const showDeckLabel = deckName !== undefined;
+  const deckLabel = deckName ?? t('goals.allDecks');
+
   return (
     <View style={styles.container}>
+      {showDeckLabel && (
+        <Text style={styles.deckLabel}>📚 {deckLabel}</Text>
+      )}
       <View style={styles.row}>
         <Text style={styles.numbers}>
           {goal.wordsLearned}/{goal.targetWords}{t('common.words')}
@@ -48,6 +58,11 @@ export const GoalTracker: React.FC<GoalTrackerProps> = ({ goal }) => {
 const styles = StyleSheet.create({
   container: {
     gap: 6,
+  },
+  deckLabel: {
+    fontSize: 12,
+    color: '#7C3AED',
+    fontWeight: '600',
   },
   row: {
     flexDirection: 'row',

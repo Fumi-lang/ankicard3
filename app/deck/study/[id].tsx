@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, TouchableOpacity
+  View, Text, StyleSheet, SafeAreaView, TouchableOpacity, Pressable
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +14,9 @@ import { DifficultyButtons } from '../../../src/components/DifficultyButtons';
 import { MotivationBanner } from '../../../src/components/MotivationBanner';
 import type { Deck, StudyQuality } from '../../../src/types';
 
+/** 応援バナー領域の高さ（常にこの分の空間を確保する）*/
+const MOTIVATION_BANNER_HEIGHT = 56;
+
 /** 学習セッション画面 */
 export default function StudyScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -24,7 +27,7 @@ export default function StudyScreen() {
   const {
     currentCard, isFlipped, isComplete, isLoading,
     correctCount, incorrectCount, consecutiveCorrect,
-    cards, currentIndex, loadCards, flipCard, resetFlip, answerCard,
+    cards, currentIndex, loadCards, flipCard, answerCard,
   } = useStudySession();
 
   const { getEstimates } = useSpacedRepetition();
@@ -32,7 +35,7 @@ export default function StudyScreen() {
 
   const [deck, setDeck] = useState<Deck | null>(null);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
-  // フリップ戻しアニメーション中のボタン二重タップ防止
+  // ボタン二重タップ防止
   const [isAnswering, setIsAnswering] = useState(false);
 
   useEffect(() => {
@@ -50,29 +53,19 @@ export default function StudyScreen() {
     const msg = getSessionMessage({ consecutiveCorrect });
     if (msg) {
       setSessionMessage(msg);
-      setTimeout(() => setSessionMessage(null), 3000);
+      setTimeout(() => setSessionMessage(null), 3500);
     }
   }, [consecutiveCorrect]);
 
-  // FlashCard の withTiming duration と同じ値（400ms）
-  const FLIP_DURATION = 400;
-
-  const handleAnswer = (quality: StudyQuality) => {
+  const handleAnswer = async (quality: StudyQuality) => {
     if (isAnswering) return;
     setIsAnswering(true);
-
-    // Step 1: isFlipped を false にして表面へ戻すアニメーションを開始
-    resetFlip();
-
-    // Step 2: アニメーション完了後にカードを切り替える
-    setTimeout(async () => {
-      await answerCard(quality);
-      // バイブレーション（モバイルブラウザのみ）
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(quality === 'again' ? 100 : 30);
-      }
-      setIsAnswering(false);
-    }, FLIP_DURATION);
+    await answerCard(quality);
+    // バイブレーション（モバイルブラウザのみ）
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(quality === 'again' ? 100 : 30);
+    }
+    setIsAnswering(false);
   };
 
   const estimates = currentCard ? getEstimates(currentCard, lang) : {
@@ -135,7 +128,7 @@ export default function StudyScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* ヘッダー */}
+      {/* ヘッダー（タップ範囲外）*/}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Text style={styles.backText}>{t('common.back')}</Text>
@@ -148,28 +141,32 @@ export default function StudyScreen() {
         </View>
       </View>
 
-      {/* モチベーションメッセージ */}
-      {sessionMessage && (
-        <View style={styles.messageBanner}>
-          <MotivationBanner message={sessionMessage} />
+      {/* タップ可能エリア（カード外の余白も含む・答え未表示時のみ反応）*/}
+      <Pressable
+        style={styles.tapArea}
+        onPress={() => { if (!isFlipped) flipCard(); }}
+      >
+        {/* バナー領域を常に確保（固定 paddingTop）+ バナーを絶対配置でオーバーレイ */}
+        <View style={styles.cardBody}>
+          {sessionMessage && (
+            <View style={styles.motivationOverlay} pointerEvents="none">
+              <MotivationBanner message={sessionMessage} />
+            </View>
+          )}
+          {currentCard && (
+            <FlashCard
+              card={currentCard}
+              isRevealed={isFlipped}
+              onReveal={flipCard}
+              sourceLang={deck?.sourceLang ?? 'ja'}
+              targetLang={deck?.targetLang ?? 'en'}
+              clozeAnswerLang={clozeAnswerLangValue}
+            />
+          )}
         </View>
-      )}
+      </Pressable>
 
-      {/* フラッシュカード */}
-      <View style={styles.cardArea}>
-        {currentCard && (
-          <FlashCard
-            card={currentCard}
-            isFlipped={isFlipped}
-            onFlip={flipCard}
-            sourceLang={deck?.sourceLang ?? 'ja'}
-            targetLang={deck?.targetLang ?? 'en'}
-            clozeAnswerLang={clozeAnswerLangValue}
-          />
-        )}
-      </View>
-
-      {/* 難易度ボタン */}
+      {/* 難易度ボタン（タップ範囲外・答え表示後のみ）*/}
       {isFlipped ? (
         <DifficultyButtons
           estimates={estimates}
@@ -177,11 +174,7 @@ export default function StudyScreen() {
           disabled={isAnswering}
         />
       ) : (
-        <View style={styles.flipHint}>
-          <TouchableOpacity style={styles.flipButton} onPress={flipCard}>
-            <Text style={styles.flipButtonText}>{t('study.tapToReveal')}</Text>
-          </TouchableOpacity>
-        </View>
+        <View style={styles.flipHint} />
       )}
     </SafeAreaView>
   );
@@ -203,17 +196,28 @@ const styles = StyleSheet.create({
   },
   progressFill: { height: '100%', backgroundColor: '#4F46E5', borderRadius: 3 },
   progressText: { fontSize: 12, color: '#64748B', minWidth: 36, textAlign: 'right' },
-  messageBanner: { paddingHorizontal: 16 },
-  cardArea: {
-    flex: 1, paddingHorizontal: 16, paddingVertical: 12,
+  tapArea: {
+    flex: 1,
+    // Web: カード未表示時にカーソルをポインターに
+    cursor: 'pointer',
+  } as object,
+  cardBody: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: MOTIVATION_BANNER_HEIGHT,  // バナー領域を常に確保
+    paddingBottom: 8,
+  },
+  motivationOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: MOTIVATION_BANNER_HEIGHT,
+    zIndex: 100,
     justifyContent: 'center',
+    paddingHorizontal: 16,
   },
-  flipHint: { padding: 16 },
-  flipButton: {
-    backgroundColor: '#F1F5F9', borderRadius: 12,
-    paddingVertical: 14, alignItems: 'center',
-  },
-  flipButtonText: { color: '#64748B', fontSize: 14 },
+  flipHint: { height: 16 },
   completeContainer: {
     flex: 1, alignItems: 'center', justifyContent: 'center', gap: 20, padding: 32,
   },

@@ -100,9 +100,16 @@ export default function HomeScreen() {
         {activeGoals.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{t('home.goalProgress')}</Text>
-            <View style={styles.card}>
-              <GoalTracker goal={activeGoals[0]} />
-            </View>
+            {activeGoals.map((goal) => {
+              const deckName = goal.deckId
+                ? (decks.find((d) => d.id === goal.deckId)?.name ?? null)
+                : null;
+              return (
+                <View key={goal.id} style={styles.card}>
+                  <GoalTracker goal={goal} deckName={deckName} />
+                </View>
+              );
+            })}
           </View>
         )}
 

@@ -28,6 +28,7 @@ export default function DeckDetailScreen() {
   const [editingCard, setEditingCard] = useState<Card | null>(null);
   const [editFront, setEditFront] = useState('');
   const [editBack, setEditBack] = useState('');
+  const [editMemo, setEditMemo] = useState('');
 
   // デッキ設定モーダル
   const [showDeckSettings, setShowDeckSettings] = useState(false);
@@ -66,6 +67,7 @@ export default function DeckDetailScreen() {
     setEditingCard(card);
     setEditFront(card.frontText);
     setEditBack(card.backText);
+    setEditMemo(card.memo ?? '');
   };
 
   const handleSaveEdit = async () => {
@@ -74,6 +76,7 @@ export default function DeckDetailScreen() {
       ...editingCard,
       frontText: editFront.trim(),
       backText: editBack.trim(),
+      memo: editMemo.trim() || undefined,
       updatedAt: new Date().toISOString(),
     });
     setEditingCard(null);
@@ -172,6 +175,12 @@ export default function DeckDetailScreen() {
                 <Text style={styles.sourceText} numberOfLines={2}>{item.frontText}</Text>
                 <SpeechButton text={item.frontText} lang={deck.sourceLang} size="small" />
               </View>
+              {/* メモプレビュー（存在する場合のみ）*/}
+              {item.memo ? (
+                <Text style={styles.memoPreview} numberOfLines={1}>
+                  📝 {item.memo.length > 30 ? item.memo.slice(0, 30) + '…' : item.memo}
+                </Text>
+              ) : null}
             </View>
             <View style={styles.cardActions}>
               <TouchableOpacity onPress={() => handleOpenEdit(item)} style={styles.editButton}>
@@ -227,6 +236,15 @@ export default function DeckDetailScreen() {
               value={editFront}
               onChangeText={setEditFront}
               multiline
+            />
+            <Text style={styles.inputLabel}>{t('card.memo')}</Text>
+            <TextInput
+              style={[styles.textInput, styles.memoInput]}
+              value={editMemo}
+              onChangeText={setEditMemo}
+              multiline
+              placeholder={t('card.memoPlaceholder')}
+              placeholderTextColor="#CBD5E1"
             />
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -363,6 +381,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 10,
     fontSize: 14, color: '#1E293B', minHeight: 44,
   },
+  memoInput: { minHeight: 80, textAlignVertical: 'top' },
+  memoPreview: { fontSize: 11, color: '#94A3B8', fontStyle: 'italic', marginTop: 2 },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
   modalCancelBtn: {
     flex: 1, borderWidth: 1.5, borderColor: '#E2E8F0', borderRadius: 10,

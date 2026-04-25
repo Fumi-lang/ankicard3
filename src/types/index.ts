@@ -41,12 +41,16 @@ export interface CardExtraInfo {
   exampleSentence?: string;
   /** コロケーション例 */
   collocations?: string[];
-  /** 使用文脈・ニュアンス補足 */
+  /** 穴埋め答えの意味・定義（母語で記述） */
   contextNote?: string;
   /** 単語レベル (CEFR: A1/A2/B1/B2/C1/C2) */
   wordLevel?: string;
   /** 文レベル (CEFR: A1/A2/B1/B2/C1/C2) */
   sentenceLevel?: string;
+  /** シーンカテゴリーID */
+  sceneCategoryId?: string;
+  /** シーンサブカテゴリーID */
+  sceneSubcategoryId?: string;
   noun?: {
     gender?: string;
     plural?: string;
@@ -73,6 +77,8 @@ export interface Card {
   frontText: string;
   backText: string;
   extraInfo?: CardExtraInfo;
+  /** ユーザーメモ（任意）*/
+  memo?: string;
   source: CardSource;
   // SM-2フィールド
   easeFactor: number;

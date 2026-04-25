@@ -3,17 +3,21 @@ import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView
 } from 'react-native';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withTiming, interpolate, Extrapolation
+  useSharedValue, useAnimatedStyle, withTiming
 } from 'react-native-reanimated';
 import type { Card } from '../types';
 import { CardFormBadge } from './CardTypeBadge';
 import { SpeechButton } from './SpeechButton';
 import { useTranslation } from 'react-i18next';
+import {
+  getSceneCategoryById,
+  getSceneSubcategoryById,
+} from '../utils/sceneCategories';
 
 interface FlashCardProps {
   card: Card;
-  isFlipped: boolean;
-  onFlip: () => void;
+  isRevealed: boolean;
+  onReveal: () => void;
   sourceLang: string;
   targetLang: string;
   /** 穴埋めカード裏面（答え）の読み上げ言語。未指定時は targetLang を使用 */
@@ -22,7 +26,6 @@ interface FlashCardProps {
 
 /**
  * ___（アンダースコア3つ）を穴埋めボックスとして描画するコンポーネント
- * React Native では <Text> の入れ子でインラインスタイルを実現する
  */
 const TextWithBlanks: React.FC<{ text: string; style?: object }> = ({ text, style }) => {
   const parts = text.split('___');
@@ -41,123 +44,151 @@ const TextWithBlanks: React.FC<{ text: string; style?: object }> = ({ text, styl
   );
 };
 
-/** フラッシュカードUI（3Dフリップアニメーション付き）*/
+/** フラッシュカードUI（タップで答えをエクスパンド表示）*/
 export const FlashCard: React.FC<FlashCardProps> = ({
   card,
-  isFlipped,
-  onFlip,
+  isRevealed,
+  onReveal,
   sourceLang,
   targetLang,
   clozeAnswerLang,
 }) => {
-  const { t } = useTranslation();
-  const rotation = useSharedValue(0);
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language as 'ja' | 'en';
+
+  // 裏面エクスパンドアニメーション
+  const revealOpacity = useSharedValue(0);
+  const revealTranslateY = useSharedValue(8);
 
   useEffect(() => {
-    rotation.value = withTiming(isFlipped ? 180 : 0, { duration: 400 });
-  }, [isFlipped]);
+    if (isRevealed) {
+      revealOpacity.value = withTiming(1, { duration: 250 });
+      revealTranslateY.value = withTiming(0, { duration: 250 });
+    } else {
+      // 即座にリセット（次のカードへの遷移時）
+      revealOpacity.value = 0;
+      revealTranslateY.value = 8;
+    }
+  }, [isRevealed]);
 
-  // 表面のアニメーションスタイル
-  const frontStyle = useAnimatedStyle(() => {
-    const rotateY = interpolate(rotation.value, [0, 180], [0, 180], Extrapolation.CLAMP);
-    return {
-      transform: [{ rotateY: `${rotateY}deg` }],
-      backfaceVisibility: 'hidden',
-    };
-  });
-
-  // 裏面のアニメーションスタイル
-  const backStyle = useAnimatedStyle(() => {
-    const rotateY = interpolate(rotation.value, [0, 180], [180, 360], Extrapolation.CLAMP);
-    return {
-      transform: [{ rotateY: `${rotateY}deg` }],
-      backfaceVisibility: 'hidden',
-    };
-  });
+  const revealAnimStyle = useAnimatedStyle(() => ({
+    opacity: revealOpacity.value,
+    transform: [{ translateY: revealTranslateY.value }],
+  }));
 
   // CEFR レベル
-  // 表面: wordLevel を優先表示（穴埋めカードでは暗記対象単語のレベルが最重要）
   const frontLevel = card.extraInfo?.wordLevel ?? card.extraInfo?.sentenceLevel;
   const wordLevel = card.extraInfo?.wordLevel;
   const sentenceLevel = card.extraInfo?.sentenceLevel;
 
+  // シーンバッジ
+  const sceneCategoryId = card.extraInfo?.sceneCategoryId;
+  const sceneSubcategoryId = card.extraInfo?.sceneSubcategoryId;
+  const sceneCategory = sceneCategoryId ? getSceneCategoryById(sceneCategoryId) : undefined;
+  const sceneSubcategory =
+    sceneCategoryId && sceneSubcategoryId
+      ? getSceneSubcategoryById(sceneCategoryId, sceneSubcategoryId)
+      : undefined;
+  const sceneBadgeLabel = sceneCategory
+    ? sceneSubcategory
+      ? `${sceneCategory.label[lang]} > ${sceneSubcategory.label[lang]}`
+      : sceneCategory.label[lang]
+    : null;
+
   return (
     <TouchableOpacity
       style={styles.container}
-      onPress={() => !isFlipped && onFlip()}
-      activeOpacity={isFlipped ? 1 : 0.85}
+      onPress={() => !isRevealed && onReveal()}
+      activeOpacity={isRevealed ? 1 : 0.85}
     >
-      {/* 表面：学習言語（backText = targetLang のテキスト）を表示 */}
-      <Animated.View style={[styles.card, styles.front, frontStyle]}>
-        <View style={styles.cardContent}>
-          <View style={styles.badgeRow}>
-            <CardFormBadge cardForm={card.cardForm} />
-            {frontLevel && <Text style={styles.levelBadge}>{frontLevel}</Text>}
-          </View>
-          <View style={styles.textRow}>
-            <TextWithBlanks text={card.backText} style={styles.mainText} />
-            <SpeechButton text={card.backText} lang={targetLang} />
-          </View>
-          <Text style={styles.hint}>{t('study.tapToReveal')}</Text>
+      <ScrollView style={styles.scrollArea} contentContainerStyle={styles.cardContent}>
+        {/* 表面：常に表示（学習言語テキスト）*/}
+        <View style={styles.badgeRow}>
+          <CardFormBadge cardForm={card.cardForm} />
+          {frontLevel && <Text style={styles.levelBadge}>{frontLevel}</Text>}
+          {sceneBadgeLabel && (
+            <Text style={styles.sceneBadge}>{sceneBadgeLabel}</Text>
+          )}
         </View>
-      </Animated.View>
+        <View style={styles.textRow}>
+          <TextWithBlanks text={card.backText} style={styles.mainText} />
+          <SpeechButton text={card.backText} lang={targetLang} />
+        </View>
 
-      {/* 裏面：母語 or 答え（frontText = sourceLang のテキスト）を表示 */}
-      <Animated.View style={[styles.card, styles.back, backStyle]}>
-        <ScrollView style={styles.scrollArea} contentContainerStyle={styles.cardContent}>
-          <View style={styles.badgeRow}>
-            <CardFormBadge cardForm={card.cardForm} />
-            {/* 裏面では wordLevel と sentenceLevel を両方表示 */}
-            {wordLevel && (
-              <Text style={styles.levelBadge}>単語 {wordLevel}</Text>
-            )}
-            {sentenceLevel && (
-              <Text style={[styles.levelBadge, styles.sentenceLevelBadge]}>文 {sentenceLevel}</Text>
-            )}
-            {/* どちらも存在しない場合（翻訳カードで単一レベルのみ）*/}
-            {!wordLevel && !sentenceLevel && frontLevel && (
-              <Text style={styles.levelBadge}>{frontLevel}</Text>
-            )}
-          </View>
-          <View style={styles.textRow}>
-            <Text style={styles.mainText}>{card.frontText}</Text>
-            <SpeechButton
-              text={card.frontText}
-              lang={card.cardForm === 'translation' ? sourceLang : (clozeAnswerLang ?? targetLang)}
-            />
-          </View>
-          {card.extraInfo?.partOfSpeech && (
-            <Text style={styles.meta}>品詞: {card.extraInfo.partOfSpeech}</Text>
+        {/* タップヒント（未表示時のみ）*/}
+        {!isRevealed && (
+          <Text style={styles.hint}>{t('study.tapToReveal')}</Text>
+        )}
+
+        {/* 裏面：アニメーションで展開表示 */}
+        <Animated.View style={revealAnimStyle}>
+          {isRevealed && (
+            <>
+              <View style={styles.divider} />
+              {/* 裏面メインテキスト（母語 or 答え）*/}
+              <View style={styles.textRow}>
+                <Text style={styles.answerText}>{card.frontText}</Text>
+                <SpeechButton
+                  text={card.frontText}
+                  lang={card.cardForm === 'translation' ? sourceLang : (clozeAnswerLang ?? targetLang)}
+                />
+              </View>
+              {/* 裏面レベルバッジ */}
+              <View style={styles.badgeRow}>
+                {wordLevel && (
+                  <Text style={styles.levelBadge}>単語 {wordLevel}</Text>
+                )}
+                {sentenceLevel && (
+                  <Text style={[styles.levelBadge, styles.sentenceLevelBadge]}>文 {sentenceLevel}</Text>
+                )}
+                {!wordLevel && !sentenceLevel && frontLevel && (
+                  <Text style={styles.levelBadge}>{frontLevel}</Text>
+                )}
+              </View>
+              {/* 補足情報 */}
+              {card.extraInfo?.partOfSpeech && (
+                <Text style={styles.meta}>品詞: {card.extraInfo.partOfSpeech}</Text>
+              )}
+              {card.extraInfo?.pronunciation && (
+                <Text style={styles.meta}>発音: {card.extraInfo.pronunciation}</Text>
+              )}
+              {card.extraInfo?.exampleSentence && (
+                <View style={styles.exampleRow}>
+                  <Text style={styles.exampleLabel}>例文:</Text>
+                  <Text style={styles.example}>{card.extraInfo.exampleSentence}</Text>
+                </View>
+              )}
+              {card.extraInfo?.collocations && card.extraInfo.collocations.length > 0 && (
+                <View style={styles.exampleRow}>
+                  <Text style={styles.exampleLabel}>コロケーション:</Text>
+                  <Text style={styles.example}>{card.extraInfo.collocations.join(' / ')}</Text>
+                </View>
+              )}
+              {card.extraInfo?.contextNote && (
+                <View style={styles.meaningBox}>
+                  <Text style={styles.meaningLabel}>{t('study.meaningLabel')}</Text>
+                  <Text style={styles.meaningText}>{card.extraInfo.contextNote}</Text>
+                </View>
+              )}
+              {card.memo && (
+                <View style={styles.memoBox}>
+                  <Text style={styles.memoLabel}>{t('study.memoLabel')}</Text>
+                  <Text style={styles.memoText}>{card.memo}</Text>
+                </View>
+              )}
+              {card.extraInfo?.verb && (
+                <VerbInfo verb={card.extraInfo.verb} />
+              )}
+              {card.extraInfo?.noun && card.extraInfo.noun.gender && (
+                <Text style={styles.meta}>
+                  性: {card.extraInfo.noun.gender}
+                  {card.extraInfo.noun.plural ? ` / 複数: ${card.extraInfo.noun.plural}` : ''}
+                </Text>
+              )}
+            </>
           )}
-          {card.extraInfo?.pronunciation && (
-            <Text style={styles.meta}>発音: {card.extraInfo.pronunciation}</Text>
-          )}
-          {card.extraInfo?.exampleSentence && (
-            <View style={styles.exampleRow}>
-              <Text style={styles.exampleLabel}>例文:</Text>
-              <Text style={styles.example}>{card.extraInfo.exampleSentence}</Text>
-            </View>
-          )}
-          {card.extraInfo?.collocations && card.extraInfo.collocations.length > 0 && (
-            <View style={styles.exampleRow}>
-              <Text style={styles.exampleLabel}>コロケーション:</Text>
-              <Text style={styles.example}>{card.extraInfo.collocations.join(' / ')}</Text>
-            </View>
-          )}
-          {card.extraInfo?.contextNote && (
-            <Text style={styles.contextNote}>{card.extraInfo.contextNote}</Text>
-          )}
-          {card.extraInfo?.verb && (
-            <VerbInfo verb={card.extraInfo.verb} />
-          )}
-          {card.extraInfo?.noun && card.extraInfo.noun.gender && (
-            <Text style={styles.meta}>
-              性: {card.extraInfo.noun.gender}
-              {card.extraInfo.noun.plural ? ` / 複数: ${card.extraInfo.noun.plural}` : ''}
-            </Text>
-          )}
-        </ScrollView>
-      </Animated.View>
+        </Animated.View>
+      </ScrollView>
     </TouchableOpacity>
   );
 };
@@ -184,13 +215,6 @@ const VerbInfo: React.FC<{ verb: NonNullable<Card['extraInfo']>['verb'] }> = ({ 
 const styles = StyleSheet.create({
   container: {
     width: '100%',
-    aspectRatio: 1.6,
-    position: 'relative',
-  },
-  card: {
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     shadowColor: '#000',
@@ -200,23 +224,20 @@ const styles = StyleSheet.create({
     elevation: 3,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    minHeight: 160,
   },
-  front: { zIndex: 1 },
-  back: { zIndex: 0 },
   scrollArea: {
-    flex: 1,
     borderRadius: 16,
   },
   cardContent: {
     padding: 20,
-    gap: 12,
-    minHeight: '100%',
-    justifyContent: 'center',
+    gap: 10,
   },
   badgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexWrap: 'wrap',
   },
   levelBadge: {
     fontSize: 11,
@@ -245,6 +266,12 @@ const styles = StyleSheet.create({
     color: '#1E293B',
     textAlign: 'center',
   },
+  answerText: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#4F46E5',
+    textAlign: 'center',
+  },
   blankBox: {
     color: '#4F46E5',
     fontWeight: '700',
@@ -255,7 +282,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#94A3B8',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 4,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginVertical: 12,
   },
   meta: {
     fontSize: 13,
@@ -274,12 +306,47 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontStyle: 'italic',
   },
-  contextNote: {
-    fontSize: 12,
-    color: '#64748B',
-    backgroundColor: '#F8FAFC',
+  meaningBox: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 8,
     padding: 8,
-    borderRadius: 6,
+    gap: 2,
+  },
+  meaningLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#D97706',
+  },
+  meaningText: {
+    fontSize: 13,
+    color: '#78350F',
+    lineHeight: 18,
+  },
+  memoBox: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 8,
+    padding: 8,
+    gap: 2,
+  },
+  memoLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#16A34A',
+  },
+  memoText: {
+    fontSize: 13,
+    color: '#14532D',
+    lineHeight: 18,
+  },
+  sceneBadge: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#7C3AED',
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    overflow: 'hidden',
   },
   verbContainer: {
     gap: 2,

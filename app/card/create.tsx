@@ -11,7 +11,8 @@ import { useDeckStore } from '../../src/stores/deckStore';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { CardFormSelector } from '../../src/components/CardTypeSelector';
 import { ClaudeResponseParser } from '../../src/components/ClaudeResponseParser';
-import { buildPrompt, parseInputItems } from '../../src/services/promptBuilder';
+import { buildPrompt, parseInputItems, type SceneParam } from '../../src/services/promptBuilder';
+import { SCENE_CATEGORIES, REGISTER_CATEGORIES, getSceneCategoryById } from '../../src/utils/sceneCategories';
 import { getInitialSRS } from '../../src/services/srs';
 import type { CardForm, Card, ImportedCardData } from '../../src/types';
 
@@ -36,6 +37,7 @@ export default function CreateCardScreen() {
   // 手動入力
   const [frontText, setFrontText] = useState('');
   const [backText, setBackText] = useState('');
+  const [memo, setMemo] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   // Claude連携
@@ -43,6 +45,11 @@ export default function CreateCardScreen() {
   const [generatedPrompt, setGeneratedPrompt] = useState('');
   const [isCopied, setIsCopied] = useState(false);
   const [parsedCards, setParsedCards] = useState<ImportedCardData[]>([]);
+
+  // シーン選択（Claude連携・穴埋めフォームのみ）
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
+  const [selectedRegister, setSelectedRegister] = useState<string | null>(null);
 
   const handleManualSave = async () => {
     if (!frontText.trim() || !backText.trim() || !deckId) return;
@@ -55,6 +62,7 @@ export default function CreateCardScreen() {
         cardForm,
         frontText: frontText.trim(),
         backText: backText.trim(),
+        memo: memo.trim() || undefined,
         source: 'manual',
         ...getInitialSRS(),
         createdAt: now,
@@ -63,6 +71,7 @@ export default function CreateCardScreen() {
       await createCard(card);
       setFrontText('');
       setBackText('');
+      setMemo('');
       Alert.alert('', '保存しました');
     } finally {
       setIsSaving(false);
@@ -72,7 +81,11 @@ export default function CreateCardScreen() {
   const handleGeneratePrompt = () => {
     const items = parseInputItems(claudeInput);
     if (items.length === 0) return;
-    const prompt = buildPrompt(cardForm, items, sourceLang, targetLang, cardCount);
+    const scene: SceneParam | undefined =
+      cardForm === 'cloze'
+        ? { categoryId: selectedCategory, subcategoryId: selectedSubcategory, registerId: selectedRegister }
+        : undefined;
+    const prompt = buildPrompt(cardForm, items, sourceLang, targetLang, cardCount, scene);
     setGeneratedPrompt(prompt);
   };
 
@@ -103,7 +116,15 @@ export default function CreateCardScreen() {
         cardForm: c.cardForm,
         frontText: c.frontText,
         backText: c.backText,
-        extraInfo: c.extraInfo as Card['extraInfo'],
+        extraInfo: {
+          ...c.extraInfo,
+          ...(cardForm === 'cloze' && selectedCategory
+            ? {
+                sceneCategoryId: selectedCategory,
+                sceneSubcategoryId: selectedSubcategory ?? undefined,
+              }
+            : {}),
+        } as Card['extraInfo'],
         source: 'claude' as const,
         ...getInitialSRS(),
         createdAt: now,
@@ -159,6 +180,9 @@ export default function CreateCardScreen() {
             setCardForm(f);
             setGeneratedPrompt('');
             setParsedCards([]);
+            setSelectedCategory(null);
+            setSelectedSubcategory(null);
+            setSelectedRegister(null);
           }} />
         </View>
 
@@ -198,6 +222,18 @@ export default function CreateCardScreen() {
               value={frontText}
               onChangeText={setFrontText}
               placeholder="..."
+            />
+            {/* メモ（任意）*/}
+            <Text style={styles.inputLabel}>{t('card.memo')}</Text>
+            <TextInput
+              style={[styles.input, styles.memoInput]}
+              value={memo}
+              onChangeText={setMemo}
+              multiline
+              numberOfLines={3}
+              placeholder={t('card.memoPlaceholder')}
+              placeholderTextColor="#CBD5E1"
+              textAlignVertical="top"
             />
             <TouchableOpacity
               style={[styles.saveButton, (!frontText.trim() || !backText.trim()) && styles.disabled]}
@@ -244,6 +280,21 @@ export default function CreateCardScreen() {
               placeholder={getInputPlaceholder()}
               textAlignVertical="top"
             />
+
+            {/* シーン選択（穴埋めカードのみ）*/}
+            {cardForm === 'cloze' && (
+              <SceneSelector
+                selectedCategory={selectedCategory}
+                selectedSubcategory={selectedSubcategory}
+                selectedRegister={selectedRegister}
+                onSelectCategory={(id) => {
+                  setSelectedCategory(id);
+                  setSelectedSubcategory(null);
+                }}
+                onSelectSubcategory={setSelectedSubcategory}
+                onSelectRegister={setSelectedRegister}
+              />
+            )}
 
             <TouchableOpacity
               style={[styles.generateButton, !claudeInput.trim() && styles.disabled]}
@@ -356,4 +407,117 @@ const styles = StyleSheet.create({
     borderRadius: 10, paddingVertical: 12, alignItems: 'center',
   },
   copyButtonText: { color: '#166534', fontSize: 14, fontWeight: '600' },
+  memoInput: { minHeight: 80, textAlignVertical: 'top' },
+  // シーン選択
+  sceneSection: { gap: 6 },
+  sceneLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sceneLabel: { fontSize: 13, fontWeight: '600', color: '#475569' },
+  sceneChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  sceneChip: {
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 14, backgroundColor: '#F1F5F9',
+    borderWidth: 1, borderColor: 'transparent',
+  },
+  sceneChipActive: { backgroundColor: '#EEF2FF', borderColor: '#7C3AED' },
+  sceneChipText: { fontSize: 12, color: '#64748B' },
+  sceneChipTextActive: { color: '#7C3AED', fontWeight: '600' },
+  sceneDescription: { fontSize: 11, color: '#94A3B8', lineHeight: 15 },
 });
+
+/** シーン選択コンポーネント（第一分類 + サブカテゴリー + 文体の3段階）*/
+const SceneSelector: React.FC<{
+  selectedCategory: string | null;
+  selectedSubcategory: string | null;
+  selectedRegister: string | null;
+  onSelectCategory: (id: string | null) => void;
+  onSelectSubcategory: (id: string | null) => void;
+  onSelectRegister: (id: string | null) => void;
+}> = ({ selectedCategory, selectedSubcategory, selectedRegister, onSelectCategory, onSelectSubcategory, onSelectRegister }) => {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language as 'ja' | 'en';
+
+  const activeCategory = selectedCategory ? getSceneCategoryById(selectedCategory) : undefined;
+
+  return (
+    <View style={styles.sceneSection}>
+      {/* 第一分類 */}
+      <Text style={styles.sceneLabel}>{t('claude.sceneLabel')}</Text>
+      <View style={styles.sceneChips}>
+        <TouchableOpacity
+          style={[styles.sceneChip, !selectedCategory && styles.sceneChipActive]}
+          onPress={() => onSelectCategory(null)}
+        >
+          <Text style={[styles.sceneChipText, !selectedCategory && styles.sceneChipTextActive]}>
+            {t('claude.sceneAuto')}
+          </Text>
+        </TouchableOpacity>
+        {SCENE_CATEGORIES.map((cat) => (
+          <TouchableOpacity
+            key={cat.id}
+            style={[styles.sceneChip, selectedCategory === cat.id && styles.sceneChipActive]}
+            onPress={() => onSelectCategory(cat.id)}
+          >
+            <Text style={[styles.sceneChipText, selectedCategory === cat.id && styles.sceneChipTextActive]}>
+              {cat.label[lang]}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* 選択中カテゴリーの説明 */}
+      {activeCategory && (
+        <Text style={styles.sceneDescription}>{activeCategory.description[lang]}</Text>
+      )}
+
+      {/* サブカテゴリーチップ（第一分類選択時のみ）*/}
+      {activeCategory && (
+        <View style={styles.sceneChips}>
+          {/* 自動（サブカテゴリー未指定）チップ */}
+          <TouchableOpacity
+            style={[styles.sceneChip, !selectedSubcategory && styles.sceneChipActive]}
+            onPress={() => onSelectSubcategory(null)}
+          >
+            <Text style={[styles.sceneChipText, !selectedSubcategory && styles.sceneChipTextActive]}>
+              {t('claude.sceneAuto')}
+            </Text>
+          </TouchableOpacity>
+          {activeCategory.subcategories.map((sub) => (
+            <TouchableOpacity
+              key={sub.id}
+              style={[styles.sceneChip, selectedSubcategory === sub.id && styles.sceneChipActive]}
+              onPress={() => onSelectSubcategory(sub.id)}
+            >
+              <Text style={[styles.sceneChipText, selectedSubcategory === sub.id && styles.sceneChipTextActive]}>
+                {sub.label[lang]}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* 文体（レジスター）チップ */}
+      <Text style={[styles.sceneLabel, { marginTop: 6 }]}>{t('claude.registerLabel')}</Text>
+      <View style={styles.sceneChips}>
+        <TouchableOpacity
+          style={[styles.sceneChip, !selectedRegister && styles.sceneChipActive]}
+          onPress={() => onSelectRegister(null)}
+        >
+          <Text style={[styles.sceneChipText, !selectedRegister && styles.sceneChipTextActive]}>
+            {t('claude.sceneAuto')}
+          </Text>
+        </TouchableOpacity>
+        {REGISTER_CATEGORIES.map((reg) => (
+          <TouchableOpacity
+            key={reg.id}
+            style={[styles.sceneChip, selectedRegister === reg.id && styles.sceneChipActive]}
+            onPress={() => onSelectRegister(selectedRegister === reg.id ? null : reg.id)}
+          >
+            <Text style={[styles.sceneChipText, selectedRegister === reg.id && styles.sceneChipTextActive]}>
+              {reg.label[lang]}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+};
