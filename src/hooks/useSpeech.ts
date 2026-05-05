@@ -71,12 +71,18 @@ function findNaturalVoice(
   );
 }
 
-/** Web Speech API（SpeechSynthesis）を使った音声読み上げフック */
-export function useSpeech(targetLang: string): UseSpeechReturn {
+/**
+ * Web Speech API（SpeechSynthesis）を使った音声読み上げフック
+ *
+ * @param targetLang  読み上げに使う言語コード（例: 'en', 'ja'）。
+ *   null / undefined の場合は speak() が即座に return するだけで、
+ *   isSupported は false になる。SpeechButton 側でボタンを非表示にする用途で使う。
+ */
+export function useSpeech(targetLang: string | null | undefined): UseSpeechReturn {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const speechRate = useSettingsStore((s) => s.speechRate);
 
-  const isSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
+  const isSupported = typeof window !== 'undefined' && 'speechSynthesis' in window && !!targetLang;
 
   useEffect(() => {
     if (isSupported) initSpeechEngine();
@@ -84,9 +90,9 @@ export function useSpeech(targetLang: string): UseSpeechReturn {
 
   const speak = useCallback(
     (text: string) => {
-      if (!isSupported) return;
+      if (!isSupported || !targetLang) return;
 
-      const locale = toSpeechLocale(targetLang);
+      const locale = toSpeechLocale(targetLang!);
 
       // 前の発話を完全停止し、エンジンが安定するまで待つ
       window.speechSynthesis.cancel();

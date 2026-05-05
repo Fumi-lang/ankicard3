@@ -34,8 +34,11 @@ export function toSpeechLocale(langCode: string): string {
   return lang.speechLocale;
 }
 
-/** 言語コードから表示名を返す（appLangに応じてja/enを切り替え）*/
-export function getLangName(code: string, appLang: 'ja' | 'en' = 'ja'): string {
+/** 言語コードから表示名を返す（appLangに応じてja/enを切り替え）
+ *  null / undefined を渡した場合は空文字列を返す
+ */
+export function getLangName(code: string | null | undefined, appLang: 'ja' | 'en' = 'ja'): string {
+  if (!code) return '';
   const lang = SUPPORTED_LANGUAGES.find((l) => l.code === code);
   if (!lang) return code;
   return appLang === 'ja' ? lang.name : lang.nameEn;

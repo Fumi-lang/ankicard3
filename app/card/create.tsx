@@ -15,9 +15,13 @@ import { ClaudeResponseParser } from '../../src/components/ClaudeResponseParser'
 import { buildPrompt, parseInputItems, type SceneParam } from '../../src/services/promptBuilder';
 import { SCENE_CATEGORIES, REGISTER_CATEGORIES, getSceneCategoryById } from '../../src/utils/sceneCategories';
 import { getInitialSRS } from '../../src/services/srs';
+import { useTagStore } from '../../src/stores/tagStore';
 import type { CardForm, Card, ImportedCardData } from '../../src/types';
 
-type AddMethod = 'manual' | 'claude' | null;
+type AddMethod = 'manual' | 'claude';
+
+/** cardForm に対応する自動タグ名を返す */
+const getAutoTag = (form: CardForm): string => (form === 'cloze' ? '穴埋め' : '単語');
 
 /** カード作成画面（翻訳・穴埋めの2フォーム対応）*/
 export default function CreateCardScreen() {
@@ -26,12 +30,13 @@ export default function CreateCardScreen() {
   const { createCard, createCards } = useCardStore();
   const { decks } = useDeckStore();
   const { defaultSourceLang, defaultTargetLang } = useSettingsStore();
+  const { ensureTagIds, sortedTagNames } = useTagStore();
 
   const deck = decks.find((d) => d.id === deckId);
   const sourceLang = deck?.sourceLang ?? defaultSourceLang;
   const targetLang = deck?.targetLang ?? defaultTargetLang;
 
-  const [method, setMethod] = useState<AddMethod>(null);
+  const [method, setMethod] = useState<AddMethod>('manual');
   const [cardForm, setCardForm] = useState<CardForm>('translation');
   const [cardCount, setCardCount] = useState(5);
 
@@ -39,6 +44,9 @@ export default function CreateCardScreen() {
   const [frontText, setFrontText] = useState('');
   const [backText, setBackText] = useState('');
   const [memo, setMemo] = useState('');
+  // タグ（autoTag を初期値として保持）
+  const [tags, setTags] = useState<string[]>([getAutoTag('translation')]);
+  const [tagInput, setTagInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   // Claude連携
@@ -52,18 +60,42 @@ export default function CreateCardScreen() {
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
   const [selectedRegister, setSelectedRegister] = useState<string | null>(null);
 
+  /**
+   * カード形式変更時: タグ内の autoTag を新フォームのものに入れ替え、
+   * Claude 連携ステートをリセットする。
+   */
+  const handleCardFormChange = (newForm: CardForm) => {
+    const oldAutoTag = getAutoTag(cardForm);
+    const newAutoTag = getAutoTag(newForm);
+    if (oldAutoTag !== newAutoTag) {
+      setTags((prev) => {
+        const withoutOld = prev.filter((tag) => tag !== oldAutoTag);
+        return withoutOld.includes(newAutoTag) ? withoutOld : [newAutoTag, ...withoutOld];
+      });
+    }
+    setCardForm(newForm);
+    // プロンプトはフォーム変更で無効になるためリセット
+    setGeneratedPrompt('');
+    setParsedCards([]);
+    setSelectedCategory(null);
+    setSelectedSubcategory(null);
+    setSelectedRegister(null);
+  };
+
   const handleManualSave = async () => {
     if (!frontText.trim() || !backText.trim() || !deckId) return;
     setIsSaving(true);
     try {
       const now = new Date().toISOString();
+      // tags ステートがそのまま保存対象（autoTag は初期値として既に含まれている）
+      const tagIds = tags.length > 0 ? await ensureTagIds(tags) : undefined;
       const card: Card = {
         id: uuidv4(),
         deckId,
-        cardForm,
         frontText: frontText.trim(),
         backText: backText.trim(),
         memo: memo.trim() || undefined,
+        tagIds,
         source: 'manual',
         ...getInitialSRS(),
         createdAt: now,
@@ -73,6 +105,9 @@ export default function CreateCardScreen() {
       setFrontText('');
       setBackText('');
       setMemo('');
+      // 保存後は autoTag のみに戻す（ユーザー追加タグはクリア）
+      setTags([getAutoTag(cardForm)]);
+      setTagInput('');
       Alert.alert('', '保存しました');
     } finally {
       setIsSaving(false);
@@ -111,10 +146,11 @@ export default function CreateCardScreen() {
     setIsSaving(true);
     try {
       const now = new Date().toISOString();
+      // tags ステートをそのまま使用（autoTag 含む）
+      const tagIds = tags.length > 0 ? await ensureTagIds(tags) : undefined;
       const cards: Card[] = parsedCards.map((c) => ({
         id: uuidv4(),
         deckId,
-        cardForm: c.cardForm,
         frontText: c.frontText,
         backText: c.backText,
         extraInfo: {
@@ -126,6 +162,7 @@ export default function CreateCardScreen() {
               }
             : {}),
         } as Card['extraInfo'],
+        tagIds,
         source: 'claude' as const,
         ...getInitialSRS(),
         createdAt: now,
@@ -156,10 +193,73 @@ export default function CreateCardScreen() {
     return t('claude.translationInput');
   };
 
+  /** タグ入力セクション（手動・Claude 共通）*/
+  const renderTagSection = () => {
+    const presetTags = sortedTagNames().filter((t2) => !tags.includes(t2));
+    return (
+      <View style={styles.tagSection}>
+        <Text style={styles.inputLabel}>{t('card.tags')}</Text>
+        <View style={styles.tagInputRow}>
+          <TextInput
+            style={[styles.input, { flex: 1 }]}
+            value={tagInput}
+            onChangeText={setTagInput}
+            placeholder={t('card.tagsPlaceholder')}
+            placeholderTextColor="#CBD5E1"
+            onSubmitEditing={() => {
+              const trimmed = tagInput.trim();
+              if (trimmed && !tags.includes(trimmed)) {
+                setTags([...tags, trimmed]);
+              }
+              setTagInput('');
+            }}
+            returnKeyType="done"
+          />
+          <TouchableOpacity
+            style={styles.tagAddButton}
+            onPress={() => {
+              const trimmed = tagInput.trim();
+              if (trimmed && !tags.includes(trimmed)) {
+                setTags([...tags, trimmed]);
+              }
+              setTagInput('');
+            }}
+          >
+            <Text style={styles.tagAddButtonText}>+</Text>
+          </TouchableOpacity>
+        </View>
+        {(tags.length > 0 || presetTags.length > 0) && (
+          <View style={styles.tagChips}>
+            {/* 設定済みタグ（autoTag も含む）— × で削除可 */}
+            {tags.map((tag) => (
+              <TouchableOpacity
+                key={`set-${tag}`}
+                style={styles.tagChip}
+                onPress={() => setTags(tags.filter((t2) => t2 !== tag))}
+              >
+                <Text style={styles.tagChipText}>{tag} ×</Text>
+              </TouchableOpacity>
+            ))}
+            {/* プリセット候補 — タップで追加 */}
+            {presetTags.map((tag) => (
+              <TouchableOpacity
+                key={`preset-${tag}`}
+                style={styles.tagPresetChip}
+                onPress={() => setTags([...tags, tag])}
+              >
+                <Text style={styles.tagPresetChipText}>{tag}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => method ? setMethod(null) : router.back()}>
+        <TouchableOpacity onPress={() => router.back()}>
           <Text style={styles.backText}>{t('common.back')}</Text>
         </TouchableOpacity>
         <Text style={styles.title}>{t('card.addMethod')}</Text>
@@ -174,38 +274,33 @@ export default function CreateCardScreen() {
           </View>
         )}
 
-        {/* カード形式選択 */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>{t('card.cardForm')}</Text>
-          <CardFormSelector selected={cardForm} onChange={(f) => {
-            setCardForm(f);
-            setGeneratedPrompt('');
-            setParsedCards([]);
-            setSelectedCategory(null);
-            setSelectedSubcategory(null);
-            setSelectedRegister(null);
-          }} />
+        {/* 追加方法タブ（常時表示）*/}
+        <View style={styles.methodTabs}>
+          <TouchableOpacity
+            style={[styles.methodTab, method === 'manual' && styles.methodTabActive]}
+            onPress={() => setMethod('manual')}
+          >
+            <Text style={[styles.methodTabText, method === 'manual' && styles.methodTabTextActive]}>
+              {t('card.manual')}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.methodTab, method === 'claude' && styles.methodTabActive]}
+            onPress={() => setMethod('claude')}
+          >
+            <Text style={[styles.methodTabText, method === 'claude' && styles.methodTabTextActive]}>
+              {t('card.claude')}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {/* 追加方法選択 */}
-        {!method && (
-          <View style={styles.methodList}>
-            <TouchableOpacity style={styles.methodButton} onPress={() => setMethod('manual')}>
-              <Text style={styles.methodText}>{t('card.manual')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.methodButton} onPress={() => setMethod('claude')}>
-              <Text style={styles.methodText}>{t('card.claude')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.methodButton}
-              onPress={() => router.push({ pathname: '/card/import', params: { deckId } })}
-            >
-              <Text style={styles.methodText}>{t('card.fileImport')}</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* カード形式選択（タブの下・共通）*/}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>{t('card.cardForm')}</Text>
+          <CardFormSelector selected={cardForm} onChange={handleCardFormChange} />
+        </View>
 
-        {/* 手動入力フォーム */}
+        {/* ── 手動入力フォーム ── */}
         {method === 'manual' && (
           <View style={styles.section}>
             {/* 上段: 学習言語テキスト（backText = 表面に表示）*/}
@@ -236,6 +331,8 @@ export default function CreateCardScreen() {
               placeholderTextColor="#CBD5E1"
               textAlignVertical="top"
             />
+            {/* タグ（任意）— メモの下・保存ボタンの上 */}
+            {renderTagSection()}
             <TouchableOpacity
               style={[styles.saveButton, (!frontText.trim() || !backText.trim()) && styles.disabled]}
               onPress={handleManualSave}
@@ -249,7 +346,7 @@ export default function CreateCardScreen() {
           </View>
         )}
 
-        {/* Claude連携フォーム */}
+        {/* ── Claude連携フォーム ── */}
         {method === 'claude' && (
           <View style={styles.section}>
             <Text style={styles.stepLabel}>{t('claude.step1')}</Text>
@@ -296,6 +393,9 @@ export default function CreateCardScreen() {
                 onSelectRegister={setSelectedRegister}
               />
             )}
+
+            {/* タグ（任意）— 生成ボタンの上 */}
+            {renderTagSection()}
 
             <TouchableOpacity
               style={[styles.generateButton, !claudeInput.trim() && styles.disabled]}
@@ -364,7 +464,33 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEF2FF', borderRadius: 8, padding: 8, alignSelf: 'flex-start',
   },
   deckBadgeText: { fontSize: 12, color: '#4F46E5', fontWeight: '500' },
+  // 追加方法タブ
+  methodTabs: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    backgroundColor: '#F1F5F9',
+  },
+  methodTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  methodTabActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  methodTabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  methodTabTextActive: {
+    color: '#4F46E5',
+  },
   section: { gap: 10 },
+  tagSection: { gap: 6 },
   sectionLabel: { fontSize: 13, fontWeight: '600', color: '#475569' },
   inputLabel: { fontSize: 13, fontWeight: '600', color: '#475569' },
   input: {
@@ -372,14 +498,6 @@ const styles = StyleSheet.create({
     padding: 12, fontSize: 14, color: '#1E293B', backgroundColor: '#FFFFFF',
   },
   multilineInput: { minHeight: 90, textAlignVertical: 'top' },
-  methodList: { gap: 10 },
-  methodButton: {
-    backgroundColor: '#FFFFFF', borderRadius: 14, padding: 18,
-    borderWidth: 1, borderColor: '#E2E8F0',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
-  },
-  methodText: { fontSize: 15, fontWeight: '600', color: '#1E293B' },
   saveButton: {
     backgroundColor: '#4F46E5', borderRadius: 12,
     paddingVertical: 14, alignItems: 'center',
@@ -409,6 +527,25 @@ const styles = StyleSheet.create({
   },
   copyButtonText: { color: '#166534', fontSize: 14, fontWeight: '600' },
   memoInput: { minHeight: 80, textAlignVertical: 'top' },
+  tagInputRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  tagAddButton: {
+    backgroundColor: '#4F46E5', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 12, alignItems: 'center', justifyContent: 'center',
+  },
+  tagAddButtonText: { color: '#FFFFFF', fontSize: 18, lineHeight: 20 },
+  tagChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tagChip: {
+    backgroundColor: '#EEF2FF', borderRadius: 12,
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: '#C7D2FE',
+  },
+  tagChipText: { fontSize: 12, color: '#4F46E5', fontWeight: '500' },
+  tagPresetChip: {
+    backgroundColor: 'transparent', borderRadius: 12,
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: '#CBD5E1',
+  },
+  tagPresetChipText: { fontSize: 12, color: '#64748B' },
   // シーン選択
   sceneSection: { gap: 6 },
   sceneLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -473,7 +610,6 @@ const SceneSelector: React.FC<{
       {/* サブカテゴリーチップ（第一分類選択時のみ）*/}
       {activeCategory && (
         <View style={styles.sceneChips}>
-          {/* 自動（サブカテゴリー未指定）チップ */}
           <TouchableOpacity
             style={[styles.sceneChip, !selectedSubcategory && styles.sceneChipActive]}
             onPress={() => onSelectSubcategory(null)}

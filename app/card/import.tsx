@@ -15,6 +15,7 @@ import { importDeckFromExport, readDeckExportFile } from '../../src/services/dec
 import { ImportPreview } from '../../src/components/ImportPreview';
 import { CardFormSelector } from '../../src/components/CardTypeSelector';
 import { getInitialSRS } from '../../src/services/srs';
+import { useTagStore } from '../../src/stores/tagStore';
 import type { Card, CardForm, ImportResult } from '../../src/types';
 
 const DELIMITERS = [
@@ -31,6 +32,7 @@ export default function ImportScreen() {
   const { createCards } = useCardStore();
   const { decks } = useDeckStore();
   const { defaultSourceLang, defaultTargetLang } = useSettingsStore();
+  const { ensureTagIds } = useTagStore();
 
   const deck = decks.find((d) => d.id === deckId);
   const sourceLang = deck?.sourceLang ?? defaultSourceLang;
@@ -62,17 +64,22 @@ export default function ImportScreen() {
     try {
       const validCards = result.cards.filter((c) => c.isValid);
       const now = new Date().toISOString();
-      const cards: Card[] = validCards.map((c) => ({
-        id: uuidv4(),
-        deckId,
-        cardForm: c.cardForm,
-        frontText: c.frontText,
-        backText: c.backText,
-        extraInfo: c.extraInfo as Card['extraInfo'],
-        source: 'import' as const,
-        ...getInitialSRS(),
-        createdAt: now,
-        updatedAt: now,
+      // 各カードの cardForm → タグ名 → タグID に変換（自動作成含む）
+      const cards: Card[] = await Promise.all(validCards.map(async (c) => {
+        const autoTag = c.cardForm === 'cloze' ? '穴埋め' : '単語';
+        const tagIds  = await ensureTagIds([autoTag]);
+        return {
+          id: uuidv4(),
+          deckId,
+          frontText: c.frontText,
+          backText: c.backText,
+          extraInfo: c.extraInfo as Card['extraInfo'],
+          tagIds,
+          source: 'import' as const,
+          ...getInitialSRS(),
+          createdAt: now,
+          updatedAt: now,
+        };
       }));
       await createCards(cards);
       Alert.alert('', `${cards.length}枚インポートしました`, [

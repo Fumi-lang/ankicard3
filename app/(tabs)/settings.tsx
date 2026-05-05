@@ -5,9 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
-import i18n from '../../src/i18n';
 import { useSettingsStore } from '../../src/stores/settingsStore';
-import { SUPPORTED_LANGUAGES } from '../../src/utils/speechLocale';
 import { exportAllDecks } from '../../src/services/deckExporter';
 import { importDeckFromExport, readDeckExportFile } from '../../src/services/deckImporter';
 import { pickFile } from '../../src/services/fileImporter';
@@ -18,8 +16,6 @@ export default function SettingsScreen() {
   const { t } = useTranslation();
   const {
     appLanguage, setAppLanguage,
-    defaultSourceLang, setDefaultSourceLang,
-    defaultTargetLang, setDefaultTargetLang,
     autoPlaySpeech, setAutoPlaySpeech,
     speechRate, setSpeechRate,
   } = useSettingsStore();
@@ -28,7 +24,6 @@ export default function SettingsScreen() {
 
   const handleSetLanguage = (lang: AppLanguage) => {
     setAppLanguage(lang);
-    i18n.changeLanguage(lang);
   };
 
   const handleExportAll = async () => {
@@ -93,7 +88,7 @@ export default function SettingsScreen() {
                 onPress={() => handleSetLanguage('en')}
               >
                 <Text style={[styles.langButtonText, appLanguage === 'en' && styles.langButtonTextActive]}>
-                  🇺🇸 {t('settings.english')}
+                  🇬🇧 {t('settings.english')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -129,18 +124,6 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* 言語設定 */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('settings.langSettings')}</Text>
-          <View style={styles.card}>
-            <Text style={styles.rowLabel}>{t('settings.defaultSourceLang')}</Text>
-            <LangPicker value={defaultSourceLang} onChange={setDefaultSourceLang} appLanguage={appLanguage} />
-            <View style={styles.divider} />
-            <Text style={styles.rowLabel}>{t('settings.defaultTargetLang')}</Text>
-            <LangPicker value={defaultTargetLang} onChange={setDefaultTargetLang} appLanguage={appLanguage} />
-          </View>
-        </View>
-
         {/* データ管理 */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('settings.dataManagement')}</Text>
@@ -163,26 +146,6 @@ export default function SettingsScreen() {
     </SafeAreaView>
   );
 }
-
-const LangPicker: React.FC<{
-  value: string;
-  onChange: (v: string) => void;
-  appLanguage: AppLanguage;
-}> = ({ value, onChange, appLanguage }) => (
-  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ height: 40, marginTop: 8 }}>
-    {SUPPORTED_LANGUAGES.map((lang) => (
-      <TouchableOpacity
-        key={lang.code}
-        style={[styles.langChip, value === lang.code && styles.langChipActive]}
-        onPress={() => onChange(lang.code)}
-      >
-        <Text style={[styles.langChipText, value === lang.code && styles.langChipTextActive]}>
-          {appLanguage === 'en' ? lang.nameEn : lang.name}
-        </Text>
-      </TouchableOpacity>
-    ))}
-  </ScrollView>
-);
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F8FAFC' },
@@ -227,12 +190,4 @@ const styles = StyleSheet.create({
   },
   actionText: { fontSize: 14, color: '#4F46E5', fontWeight: '600' },
   dataNote: { fontSize: 11, color: '#F59E0B', lineHeight: 16 },
-  langChip: {
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
-    backgroundColor: '#F1F5F9', marginRight: 6,
-    borderWidth: 1, borderColor: 'transparent',
-  },
-  langChipActive: { backgroundColor: '#EEF2FF', borderColor: '#4F46E5' },
-  langChipText: { fontSize: 12, color: '#64748B' },
-  langChipTextActive: { color: '#4F46E5', fontWeight: '600' },
 });

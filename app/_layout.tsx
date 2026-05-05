@@ -1,10 +1,18 @@
 import '../src/i18n';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { useTagStore } from '../src/stores/tagStore';
 
-/** ルートレイアウト（i18n初期化含む）*/
+/** ルートレイアウト（i18n初期化・タグストア初期化含む）*/
 export default function RootLayout() {
+  const { fetchAllTags } = useTagStore();
+
+  // アプリ起動時にタグを全件ロード（方式 B キャッシュ初期化）
+  useEffect(() => {
+    fetchAllTags();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <Stack screenOptions={{ headerShown: false }}>

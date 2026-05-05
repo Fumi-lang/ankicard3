@@ -1,8 +1,7 @@
 import React from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import type { ImportedCardData } from '../types';
-import { CardFormBadge } from './CardTypeBadge';
 import { SpeechButton } from './SpeechButton';
 
 interface ImportPreviewProps {
@@ -25,26 +24,20 @@ export const ImportPreview: React.FC<ImportPreviewProps> = ({ cards, targetLang,
           {t('import.valid')}: {validCards.length} / {t('import.errors')}: {errorCards.length}
         </Text>
       </View>
-      <FlatList
-        data={validCards.slice(0, 20)} // プレビューは最大20件
-        keyExtractor={(_, i) => String(i)}
-        scrollEnabled={false}
-        renderItem={({ item }) => (
-          <View style={styles.cardRow}>
-            <CardFormBadge cardForm={item.cardForm} />
-            <View style={styles.textContainer}>
-              <View style={styles.textRow}>
-                <Text style={styles.front} numberOfLines={2}>{item.frontText}</Text>
-                <SpeechButton text={item.frontText} lang={sourceLang} size="small" />
-              </View>
-              <View style={styles.textRow}>
-                <Text style={styles.back} numberOfLines={2}>{item.backText}</Text>
-                <SpeechButton text={item.backText} lang={targetLang} size="small" />
-              </View>
+      {validCards.slice(0, 20).map((item, i) => (
+        <View key={i} style={styles.cardRow}>
+          <View style={styles.textContainer}>
+            <View style={styles.textRow}>
+              <Text style={styles.front} numberOfLines={2}>{item.frontText}</Text>
+              <SpeechButton text={item.frontText} lang={sourceLang} size="small" />
+            </View>
+            <View style={styles.textRow}>
+              <Text style={styles.back} numberOfLines={2}>{item.backText}</Text>
+              <SpeechButton text={item.backText} lang={targetLang} size="small" />
             </View>
           </View>
-        )}
-      />
+        </View>
+      ))}
       {validCards.length > 20 && (
         <Text style={styles.moreText}>...他 {validCards.length - 20} 件</Text>
       )}

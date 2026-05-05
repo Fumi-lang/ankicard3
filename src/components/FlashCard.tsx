@@ -6,7 +6,6 @@ import Animated, {
   useSharedValue, useAnimatedStyle, withTiming
 } from 'react-native-reanimated';
 import type { Card } from '../types';
-import { CardFormBadge } from './CardTypeBadge';
 import { SpeechButton } from './SpeechButton';
 import { useTranslation } from 'react-i18next';
 import {
@@ -18,10 +17,10 @@ interface FlashCardProps {
   card: Card;
   isRevealed: boolean;
   onReveal: () => void;
-  sourceLang: string;
-  targetLang: string;
-  /** 穴埋めカード裏面（答え）の読み上げ言語。未指定時は targetLang を使用 */
-  clozeAnswerLang?: string;
+  /** 表面（card.backText）の読み上げ言語コード。null/undefined = 音声ボタン非表示 */
+  frontSpeechLang?: string | null;
+  /** 裏面（card.frontText）の読み上げ言語コード。null/undefined = 音声ボタン非表示 */
+  backSpeechLang?: string | null;
 }
 
 /**
@@ -49,9 +48,8 @@ export const FlashCard: React.FC<FlashCardProps> = ({
   card,
   isRevealed,
   onReveal,
-  sourceLang,
-  targetLang,
-  clozeAnswerLang,
+  frontSpeechLang,
+  backSpeechLang,
 }) => {
   const { t, i18n } = useTranslation();
   const lang = i18n.language as 'ja' | 'en';
@@ -103,16 +101,17 @@ export const FlashCard: React.FC<FlashCardProps> = ({
     >
       <ScrollView style={styles.scrollArea} contentContainerStyle={styles.cardContent}>
         {/* 表面：常に表示（学習言語テキスト）*/}
-        <View style={styles.badgeRow}>
-          <CardFormBadge cardForm={card.cardForm} />
-          {frontLevel && <Text style={styles.levelBadge}>{frontLevel}</Text>}
-          {sceneBadgeLabel && (
-            <Text style={styles.sceneBadge}>{sceneBadgeLabel}</Text>
-          )}
-        </View>
+        {(frontLevel || sceneBadgeLabel) && (
+          <View style={styles.badgeRow}>
+            {frontLevel && <Text style={styles.levelBadge}>{frontLevel}</Text>}
+            {sceneBadgeLabel && (
+              <Text style={styles.sceneBadge}>{sceneBadgeLabel}</Text>
+            )}
+          </View>
+        )}
         <View style={styles.textRow}>
           <TextWithBlanks text={card.backText} style={styles.mainText} />
-          <SpeechButton text={card.backText} lang={targetLang} />
+          <SpeechButton text={card.backText} lang={frontSpeechLang} />
         </View>
 
         {/* タップヒント（未表示時のみ）*/}
@@ -125,13 +124,11 @@ export const FlashCard: React.FC<FlashCardProps> = ({
           {isRevealed && (
             <>
               <View style={styles.divider} />
-              {/* 裏面メインテキスト（母語 or 答え）*/}
+              {/* 裏面メインテキスト（母語 or 答え）
+                  カードフォームによる分岐なし: backSpeechLang で統一 */}
               <View style={styles.textRow}>
                 <Text style={styles.answerText}>{card.frontText}</Text>
-                <SpeechButton
-                  text={card.frontText}
-                  lang={card.cardForm === 'translation' ? sourceLang : (clozeAnswerLang ?? targetLang)}
-                />
+                <SpeechButton text={card.frontText} lang={backSpeechLang} />
               </View>
               {/* 裏面レベルバッジ */}
               <View style={styles.badgeRow}>

@@ -16,7 +16,11 @@ const BUTTON_CONFIG: { quality: StudyQuality; color: string; textColor: string }
   { quality: 'easy',  color: '#DBEAFE', textColor: '#2563EB' },
 ];
 
-/** 回答難易度ボタン（Again/Hard/Good/Easy）*/
+/**
+ * 回答難易度ボタン（Again/Hard/Good/Easy）
+ * FSRS Rating マッピング: Again=1 / Hard=2 / Good=3 / Easy=4
+ * estimates は srs.previewRatings() で計算した次回復習までの目安文字列
+ */
 export const DifficultyButtons: React.FC<DifficultyButtonsProps> = ({
   estimates,
   onAnswer,

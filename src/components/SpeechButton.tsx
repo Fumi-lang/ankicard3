@@ -5,14 +5,22 @@ import { useTranslation } from 'react-i18next';
 
 interface SpeechButtonProps {
   text: string;
-  lang: string;
+  /** 読み上げ言語コード（例: 'en', 'ja'）。null / undefined の場合はボタン自体を非表示 */
+  lang: string | null | undefined;
   size?: 'small' | 'medium';
 }
 
-/** 音声読み上げボタン（Web Speech API使用）*/
+/** 音声読み上げボタン（Web Speech API使用）
+ *
+ * lang が null / undefined の場合はボタン自体をレンダリングしない。
+ * これにより、言語未設定デッキでは音声ボタンが一切表示されない。
+ */
 export const SpeechButton: React.FC<SpeechButtonProps> = ({ text, lang, size = 'medium' }) => {
   const { speak, stop, isSpeaking, isSupported } = useSpeech(lang);
   const { t } = useTranslation();
+
+  // 言語未設定 → ボタン非表示（タップしても何も起きない状態を避ける）
+  if (!lang) return null;
 
   const handlePress = () => {
     if (isSpeaking) {
@@ -25,7 +33,7 @@ export const SpeechButton: React.FC<SpeechButtonProps> = ({ text, lang, size = '
   if (!isSupported) {
     return (
       <View style={[styles.button, styles.disabled, size === 'small' && styles.small]}>
-        <Text style={styles.disabledText} title={t('errors.speechNotSupported')}>
+        <Text style={styles.disabledText}>
           🔇
         </Text>
       </View>

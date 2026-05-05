@@ -7,29 +7,28 @@ import { getLangName } from '../utils/speechLocale';
 interface DeckCardProps {
   deck: Deck;
   dueCount?: number;
+  /** 今日出題予定のカード数（selectTodayCards で計算済み）。null = 未計算 */
+  todayCount?: number | null;
   onPress: () => void;
   onStudy?: () => void;
   onDelete?: () => void;
 }
 
 /** デッキ一覧用カードUI */
-export const DeckCard: React.FC<DeckCardProps> = ({ deck, dueCount = 0, onPress, onStudy, onDelete }) => {
+export const DeckCard: React.FC<DeckCardProps> = ({ deck, dueCount = 0, todayCount = null, onPress, onStudy, onDelete }) => {
   const { t, i18n } = useTranslation();
   const lang = i18n.language as 'ja' | 'en';
 
   const sourceLangName = getLangName(deck.sourceLang, lang);
   const targetLangName = getLangName(deck.targetLang, lang);
+  // 両方の言語が未設定かどうか
+  const hasLangs = !!(deck.sourceLang || deck.targetLang);
 
   return (
     <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.8}>
       <View style={styles.header}>
         <Text style={styles.name} numberOfLines={1}>{deck.name}</Text>
         <View style={styles.headerRight}>
-          {dueCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{dueCount}</Text>
-            </View>
-          )}
           {onDelete && (
             <TouchableOpacity
               onPress={(e) => { e.stopPropagation(); onDelete(); }}
@@ -45,12 +44,25 @@ export const DeckCard: React.FC<DeckCardProps> = ({ deck, dueCount = 0, onPress,
         <Text style={styles.description} numberOfLines={1}>{deck.description}</Text>
       )}
       <View style={styles.footer}>
-        <Text style={styles.meta}>
-          {sourceLangName} → {targetLangName}
-        </Text>
-        <Text style={styles.meta}>
-          {deck.cardCount}{t('deck.cardCount')}
-        </Text>
+        {hasLangs ? (
+          <Text style={styles.meta}>
+            {sourceLangName || '?'} → {targetLangName || '?'}
+          </Text>
+        ) : (
+          <Text style={styles.metaUnset}>
+            {lang === 'en' ? 'Language not set' : '言語未設定'}
+          </Text>
+        )}
+        <View style={styles.footerRight}>
+          {todayCount !== null && (
+            <Text style={styles.todayBadge}>
+              {lang === 'en' ? `Today: ${todayCount}` : `今日: ${todayCount}枚`}
+            </Text>
+          )}
+          <Text style={styles.meta}>
+            {deck.cardCount}{t('deck.cardCount')}
+          </Text>
+        </View>
       </View>
       {onStudy && dueCount > 0 && (
         <TouchableOpacity style={styles.studyButton} onPress={onStudy}>
@@ -105,20 +117,6 @@ const styles = StyleSheet.create({
     color: '#DC2626',
     fontWeight: '700',
   },
-  badge: {
-    backgroundColor: '#4F46E5',
-    borderRadius: 12,
-    minWidth: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-  },
-  badgeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
   description: {
     fontSize: 13,
     color: '#64748B',
@@ -126,10 +124,30 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  footerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  todayBadge: {
+    fontSize: 11,
+    color: '#4F46E5',
+    fontWeight: '600',
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
   meta: {
     fontSize: 12,
     color: '#94A3B8',
+  },
+  metaUnset: {
+    fontSize: 12,
+    color: '#CBD5E1',
+    fontStyle: 'italic',
   },
   studyButton: {
     backgroundColor: '#4F46E5',

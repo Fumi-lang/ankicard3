@@ -69,6 +69,7 @@ export const ClaudeResponseParser: React.FC<ClaudeResponseParserProps> = ({
         numberOfLines={8}
         placeholder={t('claude.pasteHint')}
         textAlignVertical="top"
+        scrollEnabled={false}
       />
 
       <Text style={styles.note}>{t('claude.clipboardNote')}</Text>
