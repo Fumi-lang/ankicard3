@@ -14,13 +14,15 @@ import { SpeechButton } from '../../src/components/SpeechButton';
 import { SUPPORTED_LANGUAGES } from '../../src/utils/speechLocale';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { useTagStore } from '../../src/stores/tagStore';
+import { getTagDisplayName, getTagDisplayNameFromEntity } from '../../src/utils/tagDisplay';
+import { updateDeckCardsTextInputAnswer } from '../../src/services/database';
 import type { Card, Deck, AppLanguage } from '../../src/types';
 
 /** デッキ詳細・カード一覧画面 */
 export default function DeckDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t } = useTranslation();
-  const { cards, fetchCards, deleteCard, updateCard } = useCardStore();
+  const { cards, fetchCards, deleteCard, updateCard, bulkUpdateCards, bulkDeleteCards } = useCardStore();
   const { updateDeck } = useDeckStore();
   const { appLanguage } = useSettingsStore();
   const { getTagsByIds, ensureTagIds, sortedTagNames } = useTagStore();
@@ -36,6 +38,20 @@ export default function DeckDetailScreen() {
   const [editMemo, setEditMemo] = useState('');
   const [editTags, setEditTags] = useState<string[]>([]);
   const [editTagInput, setEditTagInput] = useState('');
+  const [editTextInputAnswer, setEditTextInputAnswer] = useState(false);
+
+  // ── 複数選択モード ──────────────────────────────────────────────────────────
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // 一括操作モーダル（統合）
+  const [bulkEditVisible, setBulkEditVisible] = useState(false);
+  const [bulkEditMemoText, setBulkEditMemoText] = useState('');
+  const [bulkEditTagInput, setBulkEditTagInput] = useState('');
+  const [bulkEditPendingTags, setBulkEditPendingTags] = useState<string[]>([]);
+  const [bulkEditTextInput, setBulkEditTextInput] = useState(false);
+
+  const [bulkDeleteVisible, setBulkDeleteVisible] = useState(false);
 
   // ── デッキ設定モーダル（9項目）─────────────────────────────────────────────
   const [showDeckSettings, setShowDeckSettings] = useState(false);
@@ -50,6 +66,10 @@ export default function DeckDetailScreen() {
   const [settingIncludeReview, setSettingIncludeReview] = useState(false);
   /** 9. 復習カードの割合（%）Mode B のみ有効 */
   const [settingReviewRatio, setSettingReviewRatio] = useState(50);
+  /** 10. テキスト入力回答 */
+  const [settingTextInputAnswer, setSettingTextInputAnswer] = useState(false);
+  /** テキスト入力回答 ON への切り替え確認ダイアログ表示フラグ */
+  const [textInputWarningVisible, setTextInputWarningVisible] = useState(false);
 
   // ── 今日のカード数（詳細画面表示用）──────────────────────────────────────
   const [todayReviewCount, setTodayReviewCount] = useState<number | null>(null);
@@ -77,6 +97,130 @@ export default function DeckDetailScreen() {
   const filteredCards = cards
     .filter((c) => !filterTagId || (c.tagIds ?? []).includes(filterTagId));
 
+  // ── 複数選択モード操作 ─────────────────────────────────────────────────────
+  const toggleSelect = (cardId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(cardId)) next.delete(cardId);
+      else next.add(cardId);
+      return next;
+    });
+  };
+
+  const allVisibleSelected =
+    filteredCards.length > 0 && filteredCards.every((c) => selectedIds.has(c.id));
+
+  const handleToggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filteredCards.forEach((c) => next.delete(c.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filteredCards.forEach((c) => next.add(c.id));
+        return next;
+      });
+    }
+  };
+
+  const handleExitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  // 一括編集モーダルを開く
+  const handleOpenBulkEdit = () => {
+    const selected = cards.filter((c) => selectedIds.has(c.id));
+    const allOn = selected.length > 0 && selected.every((c) => c.textInputAnswer === true);
+    setBulkEditTextInput(allOn);
+    setBulkEditMemoText('');
+    setBulkEditTagInput('');
+    setBulkEditPendingTags([]);
+    setBulkEditVisible(true);
+  };
+
+  // 即時: メモを一括削除（モーダルを閉じない）
+  const handleBulkClearMemo = async () => {
+    const confirmed = typeof window !== 'undefined'
+      ? window.confirm(t('deck.clearMemo'))
+      : false;
+    if (!confirmed) return;
+    const targetCards = cards.filter((c) => selectedIds.has(c.id));
+    if (targetCards.length === 0) return;
+    const now = new Date().toISOString();
+    await bulkUpdateCards(targetCards.map((c) => ({ ...c, memo: undefined, updatedAt: now })));
+  };
+
+  // 即時: タグを一括削除（モーダルを閉じない）
+  const handleBulkClearTags = async () => {
+    const confirmed = typeof window !== 'undefined'
+      ? window.confirm(t('deck.clearTags'))
+      : false;
+    if (!confirmed) return;
+    const targetCards = cards.filter((c) => selectedIds.has(c.id));
+    if (targetCards.length === 0) return;
+    const now = new Date().toISOString();
+    await bulkUpdateCards(targetCards.map((c) => ({ ...c, tagIds: undefined, updatedAt: now })));
+  };
+
+  // 即時: テキスト入力回答を一括切り替え（モーダルを閉じない）
+  const handleBulkTextInputToggle = async (val: boolean) => {
+    if (val) {
+      const confirmed = typeof window !== 'undefined'
+        ? window.confirm(t('deck.textInputAnswerWarningMsg'))
+        : false;
+      if (!confirmed) return;
+    }
+    const targetCards = cards.filter((c) => selectedIds.has(c.id));
+    if (targetCards.length === 0) return;
+    const now = new Date().toISOString();
+    await bulkUpdateCards(targetCards.map((c) => ({ ...c, textInputAnswer: val, updatedAt: now })));
+    setBulkEditTextInput(val);
+  };
+
+  // 完了: 保留中のメモ追記・タグ追加を適用してモーダルを閉じる
+  const handleBulkEditDone = async () => {
+    const targetCards = cards.filter((c) => selectedIds.has(c.id));
+    const hasMemo = bulkEditMemoText.trim().length > 0;
+    const hasTag  = bulkEditPendingTags.length > 0;
+    if (targetCards.length > 0 && (hasMemo || hasTag)) {
+      const pendingTagIds = hasTag ? await ensureTagIds(bulkEditPendingTags) : [];
+      const now = new Date().toISOString();
+      const updated = targetCards.map((c) => {
+        const existing = c.memo ?? '';
+        const newMemo = hasMemo
+          ? (existing ? `${existing}\n${bulkEditMemoText.trim()}` : bulkEditMemoText.trim())
+          : c.memo;
+        const existingTagIds = c.tagIds ?? [];
+        const newTagIds = hasTag
+          ? Array.from(new Set([...existingTagIds, ...pendingTagIds]))
+          : existingTagIds;
+        return {
+          ...c,
+          memo:   newMemo || undefined,
+          tagIds: newTagIds.length > 0 ? newTagIds : undefined,
+          updatedAt: now,
+        };
+      });
+      await bulkUpdateCards(updated);
+    }
+    setBulkEditVisible(false);
+    setBulkEditMemoText('');
+    setBulkEditPendingTags([]);
+    setBulkEditTagInput('');
+  };
+
+  // 一括削除
+  const handleBulkDeleteConfirm = async () => {
+    const ids = Array.from(selectedIds);
+    await bulkDeleteCards(ids);
+    setSelectedIds(new Set());
+    setBulkDeleteVisible(false);
+  };
+
   // ── カード削除 ─────────────────────────────────────────────────────────────
   const handleDelete = (card: Card) => {
     if (typeof window !== 'undefined') {
@@ -98,6 +242,7 @@ export default function DeckDetailScreen() {
     // tagIds → タグ名配列に変換して編集フォームに表示
     setEditTags(getTagsByIds(card.tagIds ?? []).map((t) => t.name));
     setEditTagInput('');
+    setEditTextInputAnswer(card.textInputAnswer ?? false);
   };
 
   const handleSaveEdit = async () => {
@@ -110,6 +255,7 @@ export default function DeckDetailScreen() {
       backText:  editBack.trim(),
       memo:      editMemo.trim() || undefined,
       tagIds,
+      textInputAnswer: editTextInputAnswer,
       updatedAt: new Date().toISOString(),
     });
     setEditingCard(null);
@@ -127,6 +273,7 @@ export default function DeckDetailScreen() {
     setSettingDailyLimit(deck.dailyLimit != null ? String(deck.dailyLimit) : '');
     setSettingIncludeReview(deck.includeReviewInDailyLimit ?? false);
     setSettingReviewRatio(deck.reviewRatio ?? 50);
+    setSettingTextInputAnswer(deck.textInputAnswer ?? false);
     setShowDeckSettings(true);
   };
 
@@ -137,6 +284,7 @@ export default function DeckDetailScreen() {
     const newDailyLimit = settingDailyLimit.trim()
       ? (parseInt(settingDailyLimit.trim(), 10) || null)
       : null;
+    const prevTextInputAnswer = deck.textInputAnswer ?? false;
     const updated: Deck = {
       ...deck,
       name:                       settingName.trim(),
@@ -148,6 +296,7 @@ export default function DeckDetailScreen() {
       dailyLimit:                 newDailyLimit,
       includeReviewInDailyLimit:  settingIncludeReview,
       reviewRatio:                settingReviewRatio,
+      textInputAnswer:            settingTextInputAnswer,
       // extraSettings から clozeAnswerSpeechLang を除外（廃止済み）
       extraSettings:    deck.extraSettings
         ? { ...deck.extraSettings, clozeAnswerSpeechLang: undefined }
@@ -155,6 +304,12 @@ export default function DeckDetailScreen() {
       updatedAt: new Date().toISOString(),
     };
     await updateDeck(updated);
+    // textInputAnswer 設定が変化した場合、デッキ内全カードを一括更新
+    if (settingTextInputAnswer !== prevTextInputAnswer && id) {
+      await updateDeckCardsTextInputAnswer(id, settingTextInputAnswer);
+      // ストアを再同期（一括更新後）
+      await fetchCards(id);
+    }
     setDeck(updated);
     // 設定変更後は今日のカード数を再計算
     if (id) {
@@ -176,9 +331,19 @@ export default function DeckDetailScreen() {
           <Text style={styles.backText}>{t('common.back')}</Text>
         </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>{deck.name}</Text>
-        <TouchableOpacity onPress={openDeckSettings} style={styles.menuButton}>
-          <Text style={styles.menuText}>⋮</Text>
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={[styles.selectModeBtn, selectMode && styles.selectModeBtnActive]}
+            onPress={() => selectMode ? handleExitSelectMode() : setSelectMode(true)}
+          >
+            <Text style={[styles.selectModeBtnText, selectMode && styles.selectModeBtnTextActive]}>
+              {selectMode ? '✓' : '☑'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={openDeckSettings} style={styles.menuButton}>
+            <Text style={styles.menuText}>⋮</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* アクションボタン */}
@@ -228,7 +393,7 @@ export default function DeckDetailScreen() {
               onPress={() => setFilterTagId(filterTagId === tag.id ? null : tag.id)}
             >
               <Text style={[styles.tagFilterText, filterTagId === tag.id && styles.tagFilterTextActive]}>
-                # {tag.name}
+                # {getTagDisplayNameFromEntity(tag, appLanguage)}
               </Text>
             </TouchableOpacity>
           ))}
@@ -244,7 +409,18 @@ export default function DeckDetailScreen() {
           <Text style={styles.emptyText}>{t('common.empty')}</Text>
         ) : (
           filteredCards.map((item) => (
-            <View key={item.id} style={styles.cardRow}>
+            <TouchableOpacity
+              key={item.id}
+              style={[styles.cardRow, selectMode && selectedIds.has(item.id) && styles.cardRowSelected]}
+              activeOpacity={selectMode ? 0.7 : 1}
+              onPress={() => { if (selectMode) toggleSelect(item.id); }}
+            >
+              {/* チェックボックス（選択モード時のみ）*/}
+              {selectMode && (
+                <View style={[styles.checkbox, selectedIds.has(item.id) && styles.checkboxChecked]}>
+                  {selectedIds.has(item.id) && <Text style={styles.checkboxMark}>✓</Text>}
+                </View>
+              )}
               <View style={styles.cardTexts}>
                 {/* 上段: 表示上の表面 (backText) — frontSpeechLang で読み上げ */}
                 <View style={styles.textRow}>
@@ -265,21 +441,24 @@ export default function DeckDetailScreen() {
                   <View style={styles.cardTagRow}>
                     {getTagsByIds(item.tagIds).map((tag) => (
                       <View key={tag.id} style={styles.cardTag}>
-                        <Text style={styles.cardTagText}># {tag.name}</Text>
+                        <Text style={styles.cardTagText}># {getTagDisplayNameFromEntity(tag, appLanguage)}</Text>
                       </View>
                     ))}
                   </View>
                 )}
               </View>
-              <View style={styles.cardActions}>
-                <TouchableOpacity onPress={() => handleOpenEdit(item)} style={styles.editButton}>
-                  <Text style={styles.editText}>✏️</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleDelete(item)} style={styles.deleteButton}>
-                  <Text style={styles.deleteText}>×</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+              {/* 通常モード: 編集・削除ボタン */}
+              {!selectMode && (
+                <View style={styles.cardActions}>
+                  <TouchableOpacity onPress={() => handleOpenEdit(item)} style={styles.editButton}>
+                    <Text style={styles.editText}>✏️</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => handleDelete(item)} style={styles.deleteButton}>
+                    <Text style={styles.deleteText}>×</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </TouchableOpacity>
           ))
         )}
       </ScrollView>
@@ -350,7 +529,7 @@ export default function DeckDetailScreen() {
                       style={styles.editTagChip}
                       onPress={() => setEditTags(editTags.filter((t2) => t2 !== tag))}
                     >
-                      <Text style={styles.editTagChipText}>{tag} ×</Text>
+                      <Text style={styles.editTagChipText}>{getTagDisplayName(tag, appLanguage)} ×</Text>
                     </TouchableOpacity>
                   ))}
                   {presetTags.map((tag) => (
@@ -359,12 +538,23 @@ export default function DeckDetailScreen() {
                       style={styles.editTagPresetChip}
                       onPress={() => setEditTags([...editTags, tag])}
                     >
-                      <Text style={styles.editTagPresetChipText}>{tag}</Text>
+                      <Text style={styles.editTagPresetChipText}>{getTagDisplayName(tag, appLanguage)}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
               );
             })()}
+            {/* テキスト入力回答トグル */}
+            <View style={styles.toggleRow}>
+              <Text style={styles.inputLabel}>{t('card.textInputAnswer')}</Text>
+              <Switch
+                value={editTextInputAnswer}
+                onValueChange={setEditTextInputAnswer}
+                trackColor={{ false: '#E2E8F0', true: '#818CF8' }}
+                thumbColor={editTextInputAnswer ? '#4F46E5' : '#FFFFFF'}
+              />
+            </View>
+
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setEditingCard(null)}>
                 <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
@@ -409,20 +599,20 @@ export default function DeckDetailScreen() {
               textAlignVertical="top"
             />
 
-            {/* 3. 母語 */}
-            <Text style={styles.inputLabel}>{t('deck.sourceLang')}</Text>
-            <LangPicker
-              value={settingSourceLang}
-              onChange={setSettingSourceLang}
-              appLanguage={appLanguage}
-              notSetLabel={t('deck.langNotSet')}
-            />
-
-            {/* 4. 学習言語 */}
+            {/* 3. 学習言語 */}
             <Text style={styles.inputLabel}>{t('deck.targetLang')}</Text>
             <LangPicker
               value={settingTargetLang}
               onChange={setSettingTargetLang}
+              appLanguage={appLanguage}
+              notSetLabel={t('deck.langNotSet')}
+            />
+
+            {/* 4. 母語 */}
+            <Text style={styles.inputLabel}>{t('deck.sourceLang')}</Text>
+            <LangPicker
+              value={settingSourceLang}
+              onChange={setSettingSourceLang}
               appLanguage={appLanguage}
               notSetLabel={t('deck.langNotSet')}
             />
@@ -524,6 +714,28 @@ export default function DeckDetailScreen() {
               </View>
             )}
 
+            {/* 10. テキスト入力回答 */}
+            <View style={styles.toggleRow}>
+              <View style={styles.toggleLabelBlock}>
+                <Text style={styles.inputLabel}>{t('deck.textInputAnswer')}</Text>
+                <Text style={styles.toggleHint}>{t('deck.textInputAnswerHint')}</Text>
+              </View>
+              <Switch
+                value={settingTextInputAnswer}
+                onValueChange={(val) => {
+                  if (val && !settingTextInputAnswer) {
+                    // OFF → ON: 警告ダイアログを表示
+                    setTextInputWarningVisible(true);
+                  } else {
+                    // ON → OFF: 警告なしで切り替え
+                    setSettingTextInputAnswer(false);
+                  }
+                }}
+                trackColor={{ false: '#E2E8F0', true: '#818CF8' }}
+                thumbColor={settingTextInputAnswer ? '#4F46E5' : '#FFFFFF'}
+              />
+            </View>
+
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.modalCancelBtn}
@@ -540,6 +752,210 @@ export default function DeckDetailScreen() {
               </TouchableOpacity>
             </View>
           </ScrollView>
+        </View>
+      </Modal>
+
+      {/* テキスト入力回答 ON 警告ダイアログ */}
+      <Modal visible={textInputWarningVisible} transparent animationType="fade">
+        <View style={styles.alertOverlay}>
+          <View style={styles.alertBox}>
+            <Text style={styles.alertTitle}>⚠️ {t('deck.textInputAnswerWarningTitle')}</Text>
+            <Text style={styles.alertMsg}>{t('deck.textInputAnswerWarningMsg')}</Text>
+            <View style={styles.alertActions}>
+              <TouchableOpacity
+                style={styles.alertCancelBtn}
+                onPress={() => setTextInputWarningVisible(false)}
+              >
+                <Text style={styles.alertCancelText}>{t('common.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.alertConfirmBtn}
+                onPress={() => {
+                  setSettingTextInputAnswer(true);
+                  setTextInputWarningVisible(false);
+                }}
+              >
+                <Text style={styles.alertConfirmText}>{t('deck.textInputAnswerWarningConfirm')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── 選択モード アクションバー ────────────────────────────────────────── */}
+      {selectMode && (
+        <View style={styles.actionBar}>
+          <View style={styles.actionBarTop}>
+            <TouchableOpacity style={styles.selectAllBtn} onPress={handleToggleSelectAll}>
+              <Text style={styles.selectAllBtnText}>
+                {allVisibleSelected ? t('deck.deselectAll') : t('deck.selectAll')}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.selectedCountText}>
+              {t('deck.selectedCount', { count: selectedIds.size })}
+            </Text>
+          </View>
+          {selectedIds.size > 0 && (
+            <View style={styles.actionBarButtons}>
+              <TouchableOpacity
+                style={[styles.actionBarBtn, styles.actionBarBtnPrimary]}
+                onPress={handleOpenBulkEdit}
+              >
+                <Text style={[styles.actionBarBtnText, styles.actionBarBtnPrimaryText]}>
+                  {t('deck.bulkEdit')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionBarBtn, styles.actionBarBtnDanger]}
+                onPress={() => setBulkDeleteVisible(true)}
+              >
+                <Text style={[styles.actionBarBtnText, styles.actionBarBtnDangerText]}>
+                  {t('common.delete')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* ── 一括編集モーダル（統合）─────────────────────────────────────────────── */}
+      <Modal visible={bulkEditVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <ScrollView
+            style={styles.settingsScroll}
+            contentContainerStyle={styles.settingsScrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.modalTitle}>{t('deck.bulkEdit')} ({selectedIds.size})</Text>
+
+            {/* メモ */}
+            <View style={styles.bulkSection}>
+              <Text style={styles.inputLabel}>{t('card.memo')}</Text>
+              <TextInput
+                style={[styles.textInput, styles.memoInput]}
+                value={bulkEditMemoText}
+                onChangeText={setBulkEditMemoText}
+                placeholder={t('card.memoPlaceholder')}
+                placeholderTextColor="#CBD5E1"
+                multiline
+                textAlignVertical="top"
+              />
+              <TouchableOpacity style={styles.bulkDangerBtn} onPress={handleBulkClearMemo}>
+                <Text style={styles.bulkDangerBtnText}>{t('deck.clearMemo')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* タグ */}
+            <View style={styles.bulkSection}>
+              <Text style={styles.inputLabel}>{t('card.tags')}</Text>
+              <View style={styles.editTagInputRow}>
+                <TextInput
+                  style={[styles.textInput, { flex: 1 }]}
+                  value={bulkEditTagInput}
+                  onChangeText={setBulkEditTagInput}
+                  placeholder={t('card.tagsPlaceholder')}
+                  placeholderTextColor="#CBD5E1"
+                  onSubmitEditing={() => {
+                    const trimmed = bulkEditTagInput.trim();
+                    if (trimmed && !bulkEditPendingTags.includes(trimmed)) {
+                      setBulkEditPendingTags([...bulkEditPendingTags, trimmed]);
+                    }
+                    setBulkEditTagInput('');
+                  }}
+                  returnKeyType="done"
+                />
+                <TouchableOpacity
+                  style={styles.editTagAddButton}
+                  onPress={() => {
+                    const trimmed = bulkEditTagInput.trim();
+                    if (trimmed && !bulkEditPendingTags.includes(trimmed)) {
+                      setBulkEditPendingTags([...bulkEditPendingTags, trimmed]);
+                    }
+                    setBulkEditTagInput('');
+                  }}
+                >
+                  <Text style={styles.editTagAddButtonText}>+</Text>
+                </TouchableOpacity>
+              </View>
+              {(() => {
+                const presetTags = sortedTagNames().filter((n) => !bulkEditPendingTags.includes(n));
+                if (bulkEditPendingTags.length === 0 && presetTags.length === 0) return null;
+                return (
+                  <View style={styles.editTagChips}>
+                    {bulkEditPendingTags.map((tag) => (
+                      <TouchableOpacity
+                        key={`pending-${tag}`}
+                        style={styles.editTagChip}
+                        onPress={() => setBulkEditPendingTags(bulkEditPendingTags.filter((n) => n !== tag))}
+                      >
+                        <Text style={styles.editTagChipText}>{getTagDisplayName(tag, appLanguage)} ×</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {presetTags.map((tag) => (
+                      <TouchableOpacity
+                        key={`preset-${tag}`}
+                        style={styles.editTagPresetChip}
+                        onPress={() => setBulkEditPendingTags([...bulkEditPendingTags, tag])}
+                      >
+                        <Text style={styles.editTagPresetChipText}>{getTagDisplayName(tag, appLanguage)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                );
+              })()}
+              <TouchableOpacity style={styles.bulkDangerBtn} onPress={handleBulkClearTags}>
+                <Text style={styles.bulkDangerBtnText}>{t('deck.clearTags')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* テキスト入力回答 */}
+            <View style={styles.toggleRow}>
+              <Text style={styles.inputLabel}>{t('deck.textInputAnswer')}</Text>
+              <Switch
+                value={bulkEditTextInput}
+                onValueChange={handleBulkTextInputToggle}
+                trackColor={{ false: '#E2E8F0', true: '#818CF8' }}
+                thumbColor={bulkEditTextInput ? '#4F46E5' : '#FFFFFF'}
+              />
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => {
+                  setBulkEditVisible(false);
+                  setBulkEditMemoText('');
+                  setBulkEditPendingTags([]);
+                  setBulkEditTagInput('');
+                }}
+              >
+                <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalSaveBtn} onPress={handleBulkEditDone}>
+                <Text style={styles.modalSaveText}>{t('common.done')}</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* ── 一括削除確認モーダル ─────────────────────────────────────────────── */}
+      <Modal visible={bulkDeleteVisible} transparent animationType="fade">
+        <View style={styles.alertOverlay}>
+          <View style={styles.alertBox}>
+            <Text style={styles.alertTitle}>{t('common.confirm')}</Text>
+            <Text style={styles.alertMsg}>
+              {t('deck.bulkDeleteConfirm', { count: selectedIds.size })}
+            </Text>
+            <View style={styles.alertActions}>
+              <TouchableOpacity style={styles.alertCancelBtn} onPress={() => setBulkDeleteVisible(false)}>
+                <Text style={styles.alertCancelText}>{t('common.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.alertDeleteBtn} onPress={handleBulkDeleteConfirm}>
+                <Text style={styles.alertDeleteText}>{t('common.delete')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -735,4 +1151,90 @@ const styles = StyleSheet.create({
   langChipActive:     { backgroundColor: '#EEF2FF', borderColor: '#4F46E5' },
   langChipText:       { fontSize: 12, color: '#64748B' },
   langChipTextActive: { color: '#4F46E5', fontWeight: '600' },
+
+  // ── ヘッダー右側エリア ──────────────────────────────────────────────────────
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  selectModeBtn: {
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+  },
+  selectModeBtnActive: { backgroundColor: '#EEF2FF' },
+  selectModeBtnText: { fontSize: 16, color: '#64748B' },
+  selectModeBtnTextActive: { color: '#4F46E5', fontWeight: '700' },
+
+  // ── カード行（選択状態）──────────────────────────────────────────────────────
+  cardRowSelected: { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE', borderWidth: 1 },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 6,
+    borderWidth: 2, borderColor: '#CBD5E1',
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: 4, flexShrink: 0,
+  },
+  checkboxChecked: { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
+  checkboxMark: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+
+  // ── 選択モード アクションバー ────────────────────────────────────────────────
+  actionBar: {
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1, borderTopColor: '#E2E8F0',
+    paddingHorizontal: 12, paddingVertical: 8, gap: 8,
+  },
+  actionBarTop: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  selectAllBtn: {
+    paddingHorizontal: 12, paddingVertical: 6,
+    backgroundColor: '#EEF2FF', borderRadius: 8,
+  },
+  selectAllBtnText: { fontSize: 13, color: '#4F46E5', fontWeight: '600' },
+  selectedCountText: { fontSize: 13, color: '#64748B' },
+  actionBarButtons: { flexDirection: 'row', gap: 6 },
+  actionBarBtn: {
+    flex: 1, paddingVertical: 8, alignItems: 'center',
+    backgroundColor: '#F1F5F9', borderRadius: 8,
+  },
+  actionBarBtnText: { fontSize: 11, color: '#475569', fontWeight: '600' },
+  actionBarBtnPrimary: { backgroundColor: '#EEF2FF' },
+  actionBarBtnPrimaryText: { color: '#4F46E5' },
+  actionBarBtnDanger: { backgroundColor: '#FEE2E2' },
+  actionBarBtnDangerText: { color: '#DC2626' },
+
+  // ── アラート・確認ダイアログ ─────────────────────────────────────────────────
+  alertOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  alertBox: {
+    backgroundColor: '#FFFFFF', borderRadius: 16,
+    padding: 24, width: '85%', gap: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15, shadowRadius: 12, elevation: 8,
+  },
+  alertTitle: { fontSize: 16, fontWeight: '700', color: '#1E293B' },
+  alertMsg: { fontSize: 13, color: '#475569', lineHeight: 19 },
+  alertActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  alertCancelBtn: {
+    flex: 1, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  alertCancelText: { color: '#64748B', fontWeight: '600', fontSize: 14 },
+  alertConfirmBtn: {
+    flex: 1, backgroundColor: '#4F46E5', borderRadius: 10,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  alertConfirmText: { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
+  alertDeleteBtn: {
+    flex: 1, backgroundColor: '#DC2626', borderRadius: 10,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  alertDeleteText: { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
+
+  // ── 一括編集モーダル（統合）──────────────────────────────────────────────────
+  bulkSection: { gap: 8 },
+  bulkDangerBtn: {
+    paddingVertical: 8, paddingHorizontal: 12,
+    borderRadius: 8, borderWidth: 1, borderColor: '#FCA5A5',
+    alignItems: 'center',
+  },
+  bulkDangerBtnText: { fontSize: 13, color: '#DC2626', fontWeight: '600' },
 });

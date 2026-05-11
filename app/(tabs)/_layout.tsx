@@ -49,13 +49,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="goals"
-        options={{
-          title: t('tabs.goals'),
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🎯</Text>,
-        }}
-      />
-      <Tabs.Screen
         name="settings"
         options={{
           title: t('tabs.settings'),

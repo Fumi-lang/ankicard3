@@ -6,13 +6,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useDeckStore } from '../../src/stores/deckStore';
-import { useGoalStore } from '../../src/stores/goalStore';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { getDueCards, getStudyCountByDateRange } from '../../src/services/database';
 import { MotivationBanner } from '../../src/components/MotivationBanner';
 import { StreakCounter } from '../../src/components/StreakCounter';
-import { ProgressBar } from '../../src/components/ProgressBar';
-import { GoalTracker } from '../../src/components/GoalTracker';
 import { useMotivation } from '../../src/hooks/useMotivation';
 import { getWeekDates, today } from '../../src/utils/dateUtils';
 
@@ -20,7 +17,6 @@ import { getWeekDates, today } from '../../src/utils/dateUtils';
 export default function HomeScreen() {
   const { t } = useTranslation();
   const { decks, fetchDecks } = useDeckStore();
-  const { goals, fetchGoals } = useGoalStore();
   const { defaultTargetLang } = useSettingsStore();
   const { getBannerMessage } = useMotivation();
 
@@ -31,7 +27,6 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchDecks();
-    fetchGoals();
     loadStats();
   }, []);
 
@@ -55,7 +50,6 @@ export default function HomeScreen() {
     setBannerMessage(msg);
   };
 
-  const activeGoals = goals.filter((g) => !g.isCompleted);
   const weekDates = getWeekDates();
   const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
   const maxCount = Math.max(...Object.values(weeklyData), 1);
@@ -96,23 +90,6 @@ export default function HomeScreen() {
             )}
           </View>
         </View>
-
-        {/* 目標進捗 */}
-        {activeGoals.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t('home.goalProgress')}</Text>
-            {activeGoals.map((goal) => {
-              const deckName = goal.deckId
-                ? (decks.find((d) => d.id === goal.deckId)?.name ?? null)
-                : null;
-              return (
-                <View key={goal.id} style={styles.card}>
-                  <GoalTracker goal={goal} deckName={deckName} />
-                </View>
-              );
-            })}
-          </View>
-        )}
 
         {/* 今週の学習 */}
         <View style={styles.section}>

@@ -12,6 +12,10 @@ interface CardState {
   createCards: (cards: Card[]) => Promise<void>;
   updateCard: (card: Card) => Promise<void>;
   deleteCard: (id: string) => Promise<void>;
+  /** 複数カードを一括 put（内容更新用）*/
+  bulkUpdateCards: (cards: Card[]) => Promise<void>;
+  /** 複数カードを一括削除（cardCount も更新）*/
+  bulkDeleteCards: (ids: string[]) => Promise<void>;
 }
 
 /** カード状態管理ストア（Zustand）*/
@@ -54,5 +58,19 @@ export const useCardStore = create<CardState>((set, get) => ({
   deleteCard: async (id) => {
     await db.deleteCard(id);
     set((state) => ({ cards: state.cards.filter((c) => c.id !== id) }));
+  },
+
+  bulkUpdateCards: async (cards) => {
+    await db.bulkUpdateCards(cards);
+    set((state) => {
+      const cardMap = new Map(cards.map((c) => [c.id, c]));
+      return { cards: state.cards.map((c) => cardMap.get(c.id) ?? c) };
+    });
+  },
+
+  bulkDeleteCards: async (ids) => {
+    await db.bulkDeleteCards(ids);
+    const idSet = new Set(ids);
+    set((state) => ({ cards: state.cards.filter((c) => !idSet.has(c.id)) }));
   },
 }));

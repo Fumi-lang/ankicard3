@@ -12,10 +12,10 @@ import { useDeckStore } from '../../src/stores/deckStore';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { CardFormSelector } from '../../src/components/CardTypeSelector';
 import { ClaudeResponseParser } from '../../src/components/ClaudeResponseParser';
-import { buildPrompt, parseInputItems, type SceneParam } from '../../src/services/promptBuilder';
-import { SCENE_CATEGORIES, REGISTER_CATEGORIES, getSceneCategoryById } from '../../src/utils/sceneCategories';
+import { buildPrompt, parseInputItems, type DifficultyParam, type DifficultyMode } from '../../src/services/promptBuilder';
 import { getInitialSRS } from '../../src/services/srs';
 import { useTagStore } from '../../src/stores/tagStore';
+import { getTagDisplayName } from '../../src/utils/tagDisplay';
 import type { CardForm, Card, ImportedCardData } from '../../src/types';
 
 type AddMethod = 'manual' | 'claude';
@@ -29,7 +29,7 @@ export default function CreateCardScreen() {
   const { t } = useTranslation();
   const { createCard, createCards } = useCardStore();
   const { decks } = useDeckStore();
-  const { defaultSourceLang, defaultTargetLang } = useSettingsStore();
+  const { defaultSourceLang, defaultTargetLang, appLanguage } = useSettingsStore();
   const { ensureTagIds, sortedTagNames } = useTagStore();
 
   const deck = decks.find((d) => d.id === deckId);
@@ -55,10 +55,8 @@ export default function CreateCardScreen() {
   const [isCopied, setIsCopied] = useState(false);
   const [parsedCards, setParsedCards] = useState<ImportedCardData[]>([]);
 
-  // シーン選択（Claude連携・穴埋めフォームのみ）
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
-  const [selectedRegister, setSelectedRegister] = useState<string | null>(null);
+  // 難易度選択（Claude連携・穴埋めフォームのみ）
+  const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyMode>('auto');
 
   /**
    * カード形式変更時: タグ内の autoTag を新フォームのものに入れ替え、
@@ -77,9 +75,6 @@ export default function CreateCardScreen() {
     // プロンプトはフォーム変更で無効になるためリセット
     setGeneratedPrompt('');
     setParsedCards([]);
-    setSelectedCategory(null);
-    setSelectedSubcategory(null);
-    setSelectedRegister(null);
   };
 
   const handleManualSave = async () => {
@@ -117,11 +112,9 @@ export default function CreateCardScreen() {
   const handleGeneratePrompt = () => {
     const items = parseInputItems(claudeInput);
     if (items.length === 0) return;
-    const scene: SceneParam | undefined =
-      cardForm === 'cloze'
-        ? { categoryId: selectedCategory, subcategoryId: selectedSubcategory, registerId: selectedRegister }
-        : undefined;
-    const prompt = buildPrompt(cardForm, items, sourceLang, targetLang, cardCount, scene);
+    const difficulty: DifficultyParam | undefined =
+      cardForm === 'cloze' ? { mode: selectedDifficulty } : undefined;
+    const prompt = buildPrompt(cardForm, items, sourceLang, targetLang, cardCount, difficulty);
     setGeneratedPrompt(prompt);
   };
 
@@ -153,15 +146,7 @@ export default function CreateCardScreen() {
         deckId,
         frontText: c.frontText,
         backText: c.backText,
-        extraInfo: {
-          ...c.extraInfo,
-          ...(cardForm === 'cloze' && selectedCategory
-            ? {
-                sceneCategoryId: selectedCategory,
-                sceneSubcategoryId: selectedSubcategory ?? undefined,
-              }
-            : {}),
-        } as Card['extraInfo'],
+        extraInfo: { ...c.extraInfo } as Card['extraInfo'],
         tagIds,
         source: 'claude' as const,
         ...getInitialSRS(),
@@ -237,7 +222,7 @@ export default function CreateCardScreen() {
                 style={styles.tagChip}
                 onPress={() => setTags(tags.filter((t2) => t2 !== tag))}
               >
-                <Text style={styles.tagChipText}>{tag} ×</Text>
+                <Text style={styles.tagChipText}>{getTagDisplayName(tag, appLanguage)} ×</Text>
               </TouchableOpacity>
             ))}
             {/* プリセット候補 — タップで追加 */}
@@ -247,7 +232,7 @@ export default function CreateCardScreen() {
                 style={styles.tagPresetChip}
                 onPress={() => setTags([...tags, tag])}
               >
-                <Text style={styles.tagPresetChipText}>{tag}</Text>
+                <Text style={styles.tagPresetChipText}>{getTagDisplayName(tag, appLanguage)}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -379,18 +364,16 @@ export default function CreateCardScreen() {
               textAlignVertical="top"
             />
 
-            {/* シーン選択（穴埋めカードのみ）*/}
+            {/* 多義語注釈ヒント（穴埋めカードのみ）*/}
             {cardForm === 'cloze' && (
-              <SceneSelector
-                selectedCategory={selectedCategory}
-                selectedSubcategory={selectedSubcategory}
-                selectedRegister={selectedRegister}
-                onSelectCategory={(id) => {
-                  setSelectedCategory(id);
-                  setSelectedSubcategory(null);
-                }}
-                onSelectSubcategory={setSelectedSubcategory}
-                onSelectRegister={setSelectedRegister}
+              <Text style={styles.annotationHint}>{t('claude.clozeAnnotationHint')}</Text>
+            )}
+
+            {/* 難易度選択（穴埋めカードのみ）*/}
+            {cardForm === 'cloze' && (
+              <DifficultySelector
+                selected={selectedDifficulty}
+                onSelect={setSelectedDifficulty}
               />
             )}
 
@@ -546,111 +529,50 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#CBD5E1',
   },
   tagPresetChipText: { fontSize: 12, color: '#64748B' },
-  // シーン選択
-  sceneSection: { gap: 6 },
-  sceneLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  sceneLabel: { fontSize: 13, fontWeight: '600', color: '#475569' },
-  sceneChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  sceneChip: {
-    paddingHorizontal: 10, paddingVertical: 5,
+  // 難易度選択
+  difficultySection: { gap: 6 },
+  difficultyChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  difficultyChip: {
+    paddingHorizontal: 12, paddingVertical: 6,
     borderRadius: 14, backgroundColor: '#F1F5F9',
     borderWidth: 1, borderColor: 'transparent',
   },
-  sceneChipActive: { backgroundColor: '#EEF2FF', borderColor: '#7C3AED' },
-  sceneChipText: { fontSize: 12, color: '#64748B' },
-  sceneChipTextActive: { color: '#7C3AED', fontWeight: '600' },
-  sceneDescription: { fontSize: 11, color: '#94A3B8', lineHeight: 15 },
+  difficultyChipActive: { backgroundColor: '#EEF2FF', borderColor: '#7C3AED' },
+  difficultyChipText: { fontSize: 12, color: '#64748B' },
+  difficultyChipTextActive: { color: '#7C3AED', fontWeight: '600' },
+  annotationHint: {
+    fontSize: 11, color: '#94A3B8', lineHeight: 16,
+    backgroundColor: '#F8FAFC', borderRadius: 6,
+    padding: 8, borderLeftWidth: 2, borderLeftColor: '#C7D2FE',
+  },
 });
 
-/** シーン選択コンポーネント（第一分類 + サブカテゴリー + 文体の3段階）*/
-const SceneSelector: React.FC<{
-  selectedCategory: string | null;
-  selectedSubcategory: string | null;
-  selectedRegister: string | null;
-  onSelectCategory: (id: string | null) => void;
-  onSelectSubcategory: (id: string | null) => void;
-  onSelectRegister: (id: string | null) => void;
-}> = ({ selectedCategory, selectedSubcategory, selectedRegister, onSelectCategory, onSelectSubcategory, onSelectRegister }) => {
-  const { t, i18n } = useTranslation();
-  const lang = i18n.language as 'ja' | 'en';
+/** 難易度選択コンポーネント（自動 / インフォーマル・スラングの2択）*/
+const DifficultySelector: React.FC<{
+  selected: DifficultyMode;
+  onSelect: (mode: DifficultyMode) => void;
+}> = ({ selected, onSelect }) => {
+  const { t } = useTranslation();
 
-  const activeCategory = selectedCategory ? getSceneCategoryById(selectedCategory) : undefined;
+  /** 現在のUIで表示する選択肢（将来 easy/normal/hard を追加予定）*/
+  const options: { mode: DifficultyMode; label: string }[] = [
+    { mode: 'auto', label: t('claude.difficultyAuto') },
+    { mode: 'academic_article', label: t('claude.difficultyAcademic') },
+    { mode: 'informal_slang', label: t('claude.difficultyInformal') },
+  ];
 
   return (
-    <View style={styles.sceneSection}>
-      {/* 第一分類 */}
-      <Text style={styles.sceneLabel}>{t('claude.sceneLabel')}</Text>
-      <View style={styles.sceneChips}>
-        <TouchableOpacity
-          style={[styles.sceneChip, !selectedCategory && styles.sceneChipActive]}
-          onPress={() => onSelectCategory(null)}
-        >
-          <Text style={[styles.sceneChipText, !selectedCategory && styles.sceneChipTextActive]}>
-            {t('claude.sceneAuto')}
-          </Text>
-        </TouchableOpacity>
-        {SCENE_CATEGORIES.map((cat) => (
+    <View style={styles.difficultySection}>
+      <Text style={styles.inputLabel}>{t('claude.difficultyLabel')}</Text>
+      <View style={styles.difficultyChips}>
+        {options.map(({ mode, label }) => (
           <TouchableOpacity
-            key={cat.id}
-            style={[styles.sceneChip, selectedCategory === cat.id && styles.sceneChipActive]}
-            onPress={() => onSelectCategory(cat.id)}
+            key={mode}
+            style={[styles.difficultyChip, selected === mode && styles.difficultyChipActive]}
+            onPress={() => onSelect(mode)}
           >
-            <Text style={[styles.sceneChipText, selectedCategory === cat.id && styles.sceneChipTextActive]}>
-              {cat.label[lang]}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* 選択中カテゴリーの説明 */}
-      {activeCategory && (
-        <Text style={styles.sceneDescription}>{activeCategory.description[lang]}</Text>
-      )}
-
-      {/* サブカテゴリーチップ（第一分類選択時のみ）*/}
-      {activeCategory && (
-        <View style={styles.sceneChips}>
-          <TouchableOpacity
-            style={[styles.sceneChip, !selectedSubcategory && styles.sceneChipActive]}
-            onPress={() => onSelectSubcategory(null)}
-          >
-            <Text style={[styles.sceneChipText, !selectedSubcategory && styles.sceneChipTextActive]}>
-              {t('claude.sceneAuto')}
-            </Text>
-          </TouchableOpacity>
-          {activeCategory.subcategories.map((sub) => (
-            <TouchableOpacity
-              key={sub.id}
-              style={[styles.sceneChip, selectedSubcategory === sub.id && styles.sceneChipActive]}
-              onPress={() => onSelectSubcategory(sub.id)}
-            >
-              <Text style={[styles.sceneChipText, selectedSubcategory === sub.id && styles.sceneChipTextActive]}>
-                {sub.label[lang]}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* 文体（レジスター）チップ */}
-      <Text style={[styles.sceneLabel, { marginTop: 6 }]}>{t('claude.registerLabel')}</Text>
-      <View style={styles.sceneChips}>
-        <TouchableOpacity
-          style={[styles.sceneChip, !selectedRegister && styles.sceneChipActive]}
-          onPress={() => onSelectRegister(null)}
-        >
-          <Text style={[styles.sceneChipText, !selectedRegister && styles.sceneChipTextActive]}>
-            {t('claude.sceneAuto')}
-          </Text>
-        </TouchableOpacity>
-        {REGISTER_CATEGORIES.map((reg) => (
-          <TouchableOpacity
-            key={reg.id}
-            style={[styles.sceneChip, selectedRegister === reg.id && styles.sceneChipActive]}
-            onPress={() => onSelectRegister(selectedRegister === reg.id ? null : reg.id)}
-          >
-            <Text style={[styles.sceneChipText, selectedRegister === reg.id && styles.sceneChipTextActive]}>
-              {reg.label[lang]}
+            <Text style={[styles.difficultyChipText, selected === mode && styles.difficultyChipTextActive]}>
+              {label}
             </Text>
           </TouchableOpacity>
         ))}

@@ -1,8 +1,11 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import type { ImportedCardData } from '../types';
 import { SpeechButton } from './SpeechButton';
+
+/** 最初に表示するカード数 */
+const INITIAL_VISIBLE = 20;
 
 interface ImportPreviewProps {
   cards: ImportedCardData[];
@@ -12,10 +15,19 @@ interface ImportPreviewProps {
 
 /** インポートプレビュー（解析結果の確認UI）*/
 export const ImportPreview: React.FC<ImportPreviewProps> = ({ cards, targetLang, sourceLang }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language as 'ja' | 'en';
+  const [showAll, setShowAll] = useState(false);
 
   const validCards = cards.filter((c) => c.isValid);
   const errorCards = cards.filter((c) => !c.isValid);
+
+  const visibleCards = showAll ? validCards : validCards.slice(0, INITIAL_VISIBLE);
+  const remainingCount = validCards.length - INITIAL_VISIBLE;
+  const hasMore = validCards.length > INITIAL_VISIBLE;
+
+  const showAllLabel  = lang === 'en' ? `Show all (${validCards.length})` : `すべて表示 (${validCards.length}件)`;
+  const collapseLabel = lang === 'en' ? 'Collapse' : '折りたたむ';
 
   return (
     <View style={styles.container}>
@@ -24,7 +36,8 @@ export const ImportPreview: React.FC<ImportPreviewProps> = ({ cards, targetLang,
           {t('import.valid')}: {validCards.length} / {t('import.errors')}: {errorCards.length}
         </Text>
       </View>
-      {validCards.slice(0, 20).map((item, i) => (
+
+      {visibleCards.map((item, i) => (
         <View key={i} style={styles.cardRow}>
           <View style={styles.textContainer}>
             <View style={styles.textRow}>
@@ -38,9 +51,24 @@ export const ImportPreview: React.FC<ImportPreviewProps> = ({ cards, targetLang,
           </View>
         </View>
       ))}
-      {validCards.length > 20 && (
-        <Text style={styles.moreText}>...他 {validCards.length - 20} 件</Text>
+
+      {hasMore && !showAll && (
+        <View style={styles.moreBlock}>
+          <Text style={styles.moreText}>
+            {lang === 'en' ? `...and ${remainingCount} more` : `...他 ${remainingCount} 件`}
+          </Text>
+          <TouchableOpacity style={styles.showAllButton} onPress={() => setShowAll(true)}>
+            <Text style={styles.showAllButtonText}>{showAllLabel}</Text>
+          </TouchableOpacity>
+        </View>
       )}
+
+      {showAll && hasMore && (
+        <TouchableOpacity style={styles.collapseButton} onPress={() => setShowAll(false)}>
+          <Text style={styles.collapseButtonText}>{collapseLabel}</Text>
+        </TouchableOpacity>
+      )}
+
       {errorCards.length > 0 && (
         <View style={styles.errorSection}>
           <Text style={styles.errorTitle}>⚠️ 一部情報が取得できませんでした</Text>
@@ -93,10 +121,42 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#475569',
   },
+  moreBlock: {
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+  },
   moreText: {
     fontSize: 12,
     color: '#94A3B8',
     textAlign: 'center',
+  },
+  showAllButton: {
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  showAllButtonText: {
+    fontSize: 13,
+    color: '#4F46E5',
+    fontWeight: '600',
+  },
+  collapseButton: {
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  collapseButtonText: {
+    fontSize: 13,
+    color: '#94A3B8',
+    fontWeight: '500',
   },
   errorSection: {
     backgroundColor: '#FFF1F2',

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Pressable
+  View, Text, StyleSheet, TouchableOpacity, Pressable,
+  TextInput, Modal, Switch, ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -9,13 +10,16 @@ import { useStudySession } from '../../../src/hooks/useStudySession';
 import { useSpacedRepetition } from '../../../src/hooks/useSpacedRepetition';
 import { useMotivation } from '../../../src/hooks/useMotivation';
 import { useSettingsStore } from '../../../src/stores/settingsStore';
+import { useCardStore } from '../../../src/stores/cardStore';
+import { useTagStore } from '../../../src/stores/tagStore';
 import { getDeckById } from '../../../src/services/database';
 import { FlashCard } from '../../../src/components/FlashCard';
 import { DifficultyButtons } from '../../../src/components/DifficultyButtons';
 import { MotivationBanner } from '../../../src/components/MotivationBanner';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { REVIEW_BUCKET_ORDER, type ReviewBucket } from '../../../src/services/sessionUtils';
-import type { Deck, StudyQuality } from '../../../src/types';
+import { getTagDisplayName } from '../../../src/utils/tagDisplay';
+import type { Card, Deck, StudyQuality } from '../../../src/types';
 
 /** 応援バナー領域の高さ（常にこの分の空間を確保する）*/
 const MOTIVATION_BANNER_HEIGHT = 56;
@@ -25,7 +29,7 @@ export default function StudyScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, i18n } = useTranslation();
   const lang = i18n.language as 'ja' | 'en';
-  const { autoPlaySpeech } = useSettingsStore();
+  const { autoPlaySpeech, appLanguage } = useSettingsStore();
 
   const {
     currentCard, isFlipped, isComplete, isLoading,
@@ -34,6 +38,9 @@ export default function StudyScreen() {
     summary,
     loadCards, flipCard, answerCard,
   } = useStudySession();
+
+  const { updateCard } = useCardStore();
+  const { getTagsByIds, ensureTagIds, sortedTagNames } = useTagStore();
 
   const { getEstimates } = useSpacedRepetition();
   const { getSessionMessage } = useMotivation();
@@ -45,12 +52,37 @@ export default function StudyScreen() {
   // ボタン二重タップ防止
   const [isAnswering, setIsAnswering] = useState(false);
 
+  // ── テキスト入力回答 ──────────────────────────────────────────────────────
+  /** ユーザーが入力した回答テキスト */
+  const [textAnswer, setTextAnswer] = useState('');
+
+  // ── カード編集（学習画面から）────────────────────────────────────────────
+  /** 学習画面上で編集したカードのオーバーライドマップ（表示反映用）*/
+  const [editedCards, setEditedCards] = useState<Record<string, Card>>({});
+  const [studyEditingCard, setStudyEditingCard] = useState<Card | null>(null);
+  const [studyEditFront, setStudyEditFront] = useState('');
+  const [studyEditBack, setStudyEditBack] = useState('');
+  const [studyEditMemo, setStudyEditMemo] = useState('');
+  const [studyEditTags, setStudyEditTags] = useState<string[]>([]);
+  const [studyEditTagInput, setStudyEditTagInput] = useState('');
+  const [studyEditTextInput, setStudyEditTextInput] = useState(false);
+  const [studyEditSaving, setStudyEditSaving] = useState(false);
+
+  // ── 表示カード（編集オーバーライドを優先）────────────────────────────────
+  const displayCard = currentCard
+    ? (editedCards[currentCard.id] ?? currentCard)
+    : null;
+
+  // カードが変わったらテキスト入力欄をクリア
+  useEffect(() => {
+    setTextAnswer('');
+  }, [currentCard?.id]);
+
   useEffect(() => {
     const deckId = id === 'all' ? undefined : id;
     if (id && id !== 'all') {
       getDeckById(id).then((d) => {
         setDeck(d ?? null);
-        // デッキ設定を loadCards に渡す。selectTodayCards が Mode A/B・上限・順序付けを担う
         loadCards(deckId, d ?? undefined);
       });
     } else {
@@ -59,7 +91,6 @@ export default function StudyScreen() {
   }, [id]);
 
   useEffect(() => {
-    // 連続 graduate 数をモチベーションメッセージのトリガーに使う
     const msg = getSessionMessage({ consecutiveCorrect: consecutiveGraduated });
     if (msg) {
       setSessionMessage(msg);
@@ -67,7 +98,6 @@ export default function StudyScreen() {
     }
   }, [consecutiveGraduated]);
 
-  // デッキ固有の FSRS カスタム重み（未設定時は undefined → ライブラリデフォルト使用）
   const fsrsWeights = deck?.extraSettings?.fsrsWeights;
 
   const handleAnswer = async (quality: StudyQuality) => {
@@ -86,10 +116,45 @@ export default function StudyScreen() {
       ? { again: '<1分', hard: '<10分', good: '1日', easy: '4日' }
       : { again: '<1m',  hard: '<10m',  good: '1d',  easy: '4d'  });
 
-  // 進捗バー: graduated カード数 / 総カード数
   const progressRatio = progressTotal > 0 ? progressCompleted / progressTotal : 0;
 
-  // frontSpeechLang / backSpeechLang は deck に直接保持する（v6 マイグレーション済み）
+  // テキスト入力モードかどうか
+  const useTextInput = displayCard?.textInputAnswer === true;
+
+  // ── カード編集 ─────────────────────────────────────────────────────────────
+  const handleOpenStudyEdit = (card: Card) => {
+    const target = editedCards[card.id] ?? card;
+    setStudyEditingCard(target);
+    setStudyEditFront(target.frontText);
+    setStudyEditBack(target.backText);
+    setStudyEditMemo(target.memo ?? '');
+    setStudyEditTags(getTagsByIds(target.tagIds ?? []).map((t) => t.name));
+    setStudyEditTagInput('');
+    setStudyEditTextInput(target.textInputAnswer ?? false);
+  };
+
+  const handleSaveStudyEdit = async () => {
+    if (!studyEditingCard) return;
+    setStudyEditSaving(true);
+    try {
+      const tagIds = studyEditTags.length > 0 ? await ensureTagIds(studyEditTags) : undefined;
+      const updated: Card = {
+        ...studyEditingCard,
+        frontText: studyEditFront.trim(),
+        backText:  studyEditBack.trim(),
+        memo:      studyEditMemo.trim() || undefined,
+        tagIds,
+        textInputAnswer: studyEditTextInput,
+        updatedAt: new Date().toISOString(),
+      };
+      await updateCard(updated);
+      // 学習画面の表示をオーバーライドで即時反映
+      setEditedCards((prev) => ({ ...prev, [updated.id]: updated }));
+      setStudyEditingCard(null);
+    } finally {
+      setStudyEditSaving(false);
+    }
+  };
 
   // ── ローディング ──────────────────────────────────────────────────────────
 
@@ -120,7 +185,6 @@ export default function StudyScreen() {
           <Text style={styles.completeEmoji}>🎉</Text>
           <Text style={styles.completeTitle}>{t('study.sessionComplete')}</Text>
 
-          {/* 学習完了枚数 + 所要時間 */}
           <View style={styles.completeSummaryRow}>
             <Text style={styles.completeSummaryMain}>
               {t('study.completedCount', { count: summary.completedCount })}
@@ -134,7 +198,6 @@ export default function StudyScreen() {
             </Text>
           </View>
 
-          {/* 次回復習予定の分布 */}
           <View style={styles.distributionCard}>
             <Text style={styles.distributionTitle}>{t('study.nextReviewSchedule')}</Text>
             {REVIEW_BUCKET_ORDER.map((bucket) => {
@@ -190,7 +253,6 @@ export default function StudyScreen() {
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${progressRatio * 100}%` }]} />
           </View>
-          {/* 分子 = graduated 済み枚数 / 分母 = セッション総枚数 */}
           <Text style={styles.progressText}>{progressCompleted}/{progressTotal}</Text>
         </View>
         {deck?.dailyLimit != null && (
@@ -198,10 +260,10 @@ export default function StudyScreen() {
         )}
       </View>
 
-      {/* タップ可能エリア（答え未表示時のみ反応）*/}
+      {/* タップ可能エリア: テキスト入力モードではタップでのフリップを無効化 */}
       <Pressable
         style={styles.tapArea}
-        onPress={() => { if (!isFlipped) flipCard(); }}
+        onPress={() => { if (!isFlipped && !useTextInput) flipCard(); }}
       >
         <View style={styles.cardBody}>
           {sessionMessage && (
@@ -209,17 +271,56 @@ export default function StudyScreen() {
               <MotivationBanner message={sessionMessage} />
             </View>
           )}
-          {currentCard && (
-            <FlashCard
-              card={currentCard}
-              isRevealed={isFlipped}
-              onReveal={flipCard}
-              frontSpeechLang={deck?.frontSpeechLang}
-              backSpeechLang={deck?.backSpeechLang}
-            />
+          {displayCard && (
+            <>
+              {/* 編集ボタン（カード右上隅に絶対配置）*/}
+              <TouchableOpacity
+                style={styles.editCardBtn}
+                onPress={() => handleOpenStudyEdit(displayCard)}
+              >
+                <Text style={styles.editCardBtnText}>✏️</Text>
+              </TouchableOpacity>
+
+              <FlashCard
+                card={displayCard}
+                isRevealed={isFlipped}
+                onReveal={useTextInput ? () => {} : flipCard}
+                frontSpeechLang={deck?.frontSpeechLang}
+                backSpeechLang={deck?.backSpeechLang}
+                hideHint={useTextInput}
+              />
+
+              {/* テキスト入力欄（textInputAnswer モード時）*/}
+              {useTextInput && (
+                <View style={styles.textAnswerBlock}>
+                  {isFlipped && textAnswer.trim() !== '' && (
+                    <Text style={styles.yourAnswerLabel}>{t('study.yourAnswer')}</Text>
+                  )}
+                  <TextInput
+                    style={styles.textAnswerInput}
+                    value={textAnswer}
+                    onChangeText={setTextAnswer}
+                    placeholder={t('study.typeAnswer')}
+                    placeholderTextColor="#94A3B8"
+                    editable={!isFlipped}
+                    multiline
+                    textAlignVertical="top"
+                  />
+                </View>
+              )}
+            </>
           )}
         </View>
       </Pressable>
+
+      {/* 「答えを見る」ボタン（テキスト入力モード・未フリップ時）*/}
+      {useTextInput && !isFlipped && (
+        <View style={styles.showAnswerArea}>
+          <TouchableOpacity style={styles.showAnswerButton} onPress={flipCard}>
+            <Text style={styles.showAnswerButtonText}>{t('study.showAnswer')}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* 難易度ボタン（答え表示後のみ）*/}
       {isFlipped ? (
@@ -233,6 +334,133 @@ export default function StudyScreen() {
       ) : (
         <View style={{ height: Math.max(insets.bottom, 16) }} />
       )}
+
+      {/* ── カード編集モーダル ─────────────────────────────────────────────── */}
+      <Modal visible={studyEditingCard !== null} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <ScrollView
+            style={styles.modalScroll}
+            contentContainerStyle={styles.modalScrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.modalTitle}>{t('card.edit')}</Text>
+
+            <Text style={styles.modalLabel}>{t('card.backTranslation')}</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={studyEditBack}
+              onChangeText={setStudyEditBack}
+              multiline
+            />
+
+            <Text style={styles.modalLabel}>{t('card.frontTranslation')}</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={studyEditFront}
+              onChangeText={setStudyEditFront}
+              multiline
+            />
+
+            <Text style={styles.modalLabel}>{t('card.memo')}</Text>
+            <TextInput
+              style={[styles.modalInput, styles.memoInput]}
+              value={studyEditMemo}
+              onChangeText={setStudyEditMemo}
+              multiline
+              placeholder={t('card.memoPlaceholder')}
+              placeholderTextColor="#CBD5E1"
+            />
+
+            <Text style={styles.modalLabel}>{t('card.tags')}</Text>
+            <View style={styles.tagInputRow}>
+              <TextInput
+                style={[styles.modalInput, { flex: 1 }]}
+                value={studyEditTagInput}
+                onChangeText={setStudyEditTagInput}
+                placeholder={t('card.tagsPlaceholder')}
+                placeholderTextColor="#CBD5E1"
+                onSubmitEditing={() => {
+                  const trimmed = studyEditTagInput.trim();
+                  if (trimmed && !studyEditTags.includes(trimmed)) {
+                    setStudyEditTags([...studyEditTags, trimmed]);
+                  }
+                  setStudyEditTagInput('');
+                }}
+                returnKeyType="done"
+              />
+              <TouchableOpacity
+                style={styles.tagAddButton}
+                onPress={() => {
+                  const trimmed = studyEditTagInput.trim();
+                  if (trimmed && !studyEditTags.includes(trimmed)) {
+                    setStudyEditTags([...studyEditTags, trimmed]);
+                  }
+                  setStudyEditTagInput('');
+                }}
+              >
+                <Text style={styles.tagAddButtonText}>+</Text>
+              </TouchableOpacity>
+            </View>
+            {(() => {
+              const presetTags = sortedTagNames().filter((t2) => !studyEditTags.includes(t2));
+              if (studyEditTags.length === 0 && presetTags.length === 0) return null;
+              return (
+                <View style={styles.tagChips}>
+                  {studyEditTags.map((tag) => (
+                    <TouchableOpacity
+                      key={`set-${tag}`}
+                      style={styles.tagChip}
+                      onPress={() => setStudyEditTags(studyEditTags.filter((t2) => t2 !== tag))}
+                    >
+                      <Text style={styles.tagChipText}>
+                        {getTagDisplayName(tag, appLanguage)} ×
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                  {presetTags.map((tag) => (
+                    <TouchableOpacity
+                      key={`preset-${tag}`}
+                      style={styles.tagPresetChip}
+                      onPress={() => setStudyEditTags([...studyEditTags, tag])}
+                    >
+                      <Text style={styles.tagPresetChipText}>
+                        {getTagDisplayName(tag, appLanguage)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              );
+            })()}
+
+            {/* テキスト入力回答トグル */}
+            <View style={styles.toggleRow}>
+              <Text style={styles.modalLabel}>{t('card.textInputAnswer')}</Text>
+              <Switch
+                value={studyEditTextInput}
+                onValueChange={setStudyEditTextInput}
+                trackColor={{ false: '#E2E8F0', true: '#818CF8' }}
+                thumbColor={studyEditTextInput ? '#4F46E5' : '#FFFFFF'}
+              />
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setStudyEditingCard(null)}
+              >
+                <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSaveBtn, studyEditSaving && styles.disabled]}
+                onPress={handleSaveStudyEdit}
+                disabled={studyEditSaving}
+              >
+                <Text style={styles.modalSaveText}>{t('common.save')}</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -277,6 +505,65 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
 
+  // ── 編集ボタン（右上絶対配置）─────────────────────────────────────────────
+  editCardBtn: {
+    position: 'absolute',
+    top: MOTIVATION_BANNER_HEIGHT + 8,
+    right: 8,
+    zIndex: 10,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderRadius: 20,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  editCardBtnText: { fontSize: 16 },
+
+  // ── テキスト入力回答 ───────────────────────────────────────────────────────
+  textAnswerBlock: {
+    marginTop: 12,
+    gap: 6,
+  },
+  yourAnswerLabel: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  textAnswerInput: {
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
+    color: '#1E293B',
+    backgroundColor: '#FFFFFF',
+    minHeight: 104, // 約4行分（行高 ~25px + padding）
+    textAlignVertical: 'top',
+  },
+  showAnswerArea: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  showAnswerButton: {
+    backgroundColor: '#4F46E5',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 48,
+    alignItems: 'center',
+  },
+  showAnswerButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
   // ── カードなし ─────────────────────────────────────────────────────────────
   noCardsText: { color: '#94A3B8', fontSize: 14, textAlign: 'center' },
 
@@ -287,48 +574,82 @@ const styles = StyleSheet.create({
   },
   completeEmoji: { fontSize: 60 },
   completeTitle: { fontSize: 22, fontWeight: '700', color: '#1E293B' },
-
   completeSummaryRow: { alignItems: 'center', gap: 4 },
   completeSummaryMain: { fontSize: 20, fontWeight: '700', color: '#4F46E5' },
   completeSummaryDuration: { fontSize: 13, color: '#94A3B8' },
-
   distributionCard: {
     width: '100%',
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
     gap: 12,
-    // shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 4,
     elevation: 2,
   },
-  distributionTitle: {
-    fontSize: 13, fontWeight: '600', color: '#64748B',
-    marginBottom: 4,
-  },
-  distributionRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-  },
-  distributionLabel: {
-    fontSize: 13, color: '#475569', width: 72,
-  },
+  distributionTitle: { fontSize: 13, fontWeight: '600', color: '#64748B', marginBottom: 4 },
+  distributionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  distributionLabel: { fontSize: 13, color: '#475569', width: 72 },
   distributionBarWrapper: {
-    flex: 1, height: 8, backgroundColor: '#F1F5F9',
-    borderRadius: 4, overflow: 'hidden',
+    flex: 1, height: 8, backgroundColor: '#F1F5F9', borderRadius: 4, overflow: 'hidden',
   },
-  distributionBar: {
-    height: '100%', backgroundColor: '#818CF8', borderRadius: 4,
-  },
-  distributionCount: {
-    fontSize: 13, fontWeight: '600', color: '#4F46E5', minWidth: 28, textAlign: 'right',
-  },
-
+  distributionBar: { height: '100%', backgroundColor: '#818CF8', borderRadius: 4 },
+  distributionCount: { fontSize: 13, fontWeight: '600', color: '#4F46E5', minWidth: 28, textAlign: 'right' },
   doneButton: {
     backgroundColor: '#4F46E5', borderRadius: 12,
     paddingVertical: 14, paddingHorizontal: 48,
   },
   doneButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+
+  // ── 編集モーダル ───────────────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end',
+  },
+  modalScroll: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    maxHeight: '90%',
+  },
+  modalScrollContent: { padding: 24, gap: 10, paddingBottom: 32 },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: '#1E293B', marginBottom: 4 },
+  modalLabel: { fontSize: 12, color: '#64748B', fontWeight: '600' },
+  modalInput: {
+    borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10,
+    padding: 10, fontSize: 14, color: '#1E293B', backgroundColor: '#FFFFFF',
+  },
+  memoInput: { minHeight: 70, textAlignVertical: 'top' },
+  tagInputRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  tagAddButton: {
+    backgroundColor: '#4F46E5', borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center', justifyContent: 'center',
+  },
+  tagAddButtonText: { color: '#FFFFFF', fontSize: 18, lineHeight: 20 },
+  tagChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tagChip: {
+    backgroundColor: '#EEF2FF', borderRadius: 12,
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: '#C7D2FE',
+  },
+  tagChipText: { fontSize: 12, color: '#4F46E5', fontWeight: '500' },
+  tagPresetChip: {
+    backgroundColor: 'transparent', borderRadius: 12,
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: '#CBD5E1',
+  },
+  tagPresetChipText: { fontSize: 12, color: '#64748B' },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  modalActions: { flexDirection: 'row', gap: 10, marginTop: 6 },
+  modalCancelBtn: {
+    flex: 1, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10,
+    paddingVertical: 12, alignItems: 'center',
+  },
+  modalCancelText: { color: '#64748B', fontWeight: '600', fontSize: 14 },
+  modalSaveBtn: {
+    flex: 1, backgroundColor: '#4F46E5', borderRadius: 10,
+    paddingVertical: 12, alignItems: 'center',
+  },
+  modalSaveText: { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
+  disabled: { opacity: 0.5 },
 });

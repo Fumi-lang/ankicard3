@@ -63,6 +63,9 @@ export default function DecksScreen() {
   // ── アクションシート ────────────────────────────────────────────────────────
   const [showActionSheet, setShowActionSheet] = useState(false);
 
+  // ── エクスポート確認モーダル ────────────────────────────────────────────────
+  const [showExportModal, setShowExportModal] = useState(false);
+
   // ── デッキ作成モーダル ──────────────────────────────────────────────────────
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [deckName, setDeckName] = useState('');
@@ -192,24 +195,7 @@ export default function DecksScreen() {
 
   const showExportOptions = () => {
     if (selectedDeckIds.size === 0) return;
-    if (typeof window !== 'undefined') {
-      const choice = window.confirm(
-        `${t('deck.exportWithProgress')}\n(OK = 含める / キャンセル = 含めない)`
-      );
-      handleExport(choice);
-      return;
-    }
-    Alert.alert(t('deck.export'), '', [
-      {
-        text: t('deck.exportWithProgress'),
-        onPress: () => handleExport(true),
-      },
-      {
-        text: t('deck.exportWithoutProgress'),
-        onPress: () => handleExport(false),
-      },
-      { text: t('common.cancel'), style: 'cancel' },
-    ]);
+    setShowExportModal(true);
   };
 
   // ── MemoryFlow インポート ───────────────────────────────────────────────────
@@ -434,6 +420,46 @@ export default function DecksScreen() {
         </TouchableOpacity>
       )}
 
+      {/* エクスポート確認モーダル */}
+      <Modal
+        visible={showExportModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowExportModal(false)}
+      >
+        {/* 背景タップでは閉じない（onPress なし）*/}
+        <View style={styles.alertOverlay}>
+          <View style={styles.alertBox}>
+            <Text style={styles.alertTitle}>📦 {t('deck.export')}</Text>
+            <Text style={styles.alertMsg}>
+              {appLanguage === 'en'
+                ? 'Include study progress in export?'
+                : '学習進捗を含めてエクスポートしますか？'}
+            </Text>
+            <View style={styles.alertActions}>
+              <TouchableOpacity
+                style={styles.alertSecondaryBtn}
+                onPress={() => { setShowExportModal(false); handleExport(false); }}
+              >
+                <Text style={styles.alertSecondaryText}>{t('deck.exportWithoutProgress')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.alertPrimaryBtn}
+                onPress={() => { setShowExportModal(false); handleExport(true); }}
+              >
+                <Text style={styles.alertPrimaryText}>{t('deck.exportWithProgress')}</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              style={styles.alertCancelBtn}
+              onPress={() => setShowExportModal(false)}
+            >
+              <Text style={styles.alertCancelText}>{t('common.cancel')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* インポートプレビューモーダル */}
       <Modal
         visible={importPreview !== null}
@@ -523,11 +549,11 @@ export default function DecksScreen() {
               onChangeText={setDescription}
             />
 
-            <Text style={styles.inputLabel}>{t('deck.sourceLang')}</Text>
-            <LangPicker value={sourceLang} onChange={setSourceLang} appLanguage={appLanguage} />
-
             <Text style={styles.inputLabel}>{t('deck.targetLang')}</Text>
             <LangPicker value={targetLang} onChange={setTargetLang} appLanguage={appLanguage} />
+
+            <Text style={styles.inputLabel}>{t('deck.sourceLang')}</Text>
+            <LangPicker value={sourceLang} onChange={setSourceLang} appLanguage={appLanguage} />
 
             <Text style={styles.inputLabel}>{t('deck.dailyLimit')}</Text>
             <TextInput
@@ -729,6 +755,36 @@ const styles = StyleSheet.create({
   langChipActive:     { backgroundColor: '#EEF2FF', borderColor: '#4F46E5' },
   langChipText:       { fontSize: 12, color: '#64748B' },
   langChipTextActive: { color: '#4F46E5', fontWeight: '600' },
+
+  // エクスポート確認モーダル（中央配置アラートスタイル）
+  alertOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  alertBox: {
+    backgroundColor: '#FFFFFF', borderRadius: 16,
+    padding: 24, width: '85%', maxWidth: 360, gap: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15, shadowRadius: 12, elevation: 8,
+  },
+  alertTitle: { fontSize: 16, fontWeight: '700', color: '#1E293B' },
+  alertMsg: { fontSize: 14, color: '#475569', lineHeight: 20 },
+  alertActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  alertSecondaryBtn: {
+    flex: 1, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  alertSecondaryText: { color: '#64748B', fontWeight: '600', fontSize: 13 },
+  alertPrimaryBtn: {
+    flex: 1, backgroundColor: '#4F46E5', borderRadius: 10,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  alertPrimaryText: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
+  alertCancelBtn: {
+    borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10,
+    paddingVertical: 11, alignItems: 'center', backgroundColor: '#FFFFFF',
+  },
+  alertCancelText: { color: '#94A3B8', fontWeight: '500', fontSize: 13 },
 
   // 警告ボックス
   warningBox: {

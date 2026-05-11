@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { v4 as uuidv4 } from 'uuid';
-import type { Deck, Card, StudyLog, Goal, Tag } from '../types';
+import type { Deck, Card, StudyLog, Tag } from '../types';
 
 // ── デフォルトタグ定義 ─────────────────────────────────────────────────────────
 
@@ -21,7 +21,6 @@ export class MemoryFlowDB extends Dexie {
   decks!: Table<Deck>;
   cards!: Table<Card>;
   studyLogs!: Table<StudyLog>;
-  goals!: Table<Goal>;
   tags!: Table<Tag>;
 
   constructor() {
@@ -241,6 +240,39 @@ export class MemoryFlowDB extends Dexie {
         delete card.tags;
       });
     });
+
+    // v10: textInputAnswer フィールドを Card と Deck に追加
+    //
+    // 変更:
+    //   - Card.textInputAnswer: boolean（デフォルト: false）
+    //   - Deck.textInputAnswer: boolean（デフォルト: false）
+    this.version(10).stores({
+      decks:     'id, name, sourceLang, targetLang, createdAt',
+      cards:     'id, deckId, nextReview, source, createdAt',
+      studyLogs: 'id, cardId, reviewedAt',
+      goals:     'id, deckId, startDate',
+      tags:      'id, &name, createdAt',
+    }).upgrade(async (trans) => {
+      await trans.table('cards').toCollection().modify((card: Record<string, unknown>) => {
+        if (card.textInputAnswer === undefined) {
+          card.textInputAnswer = false;
+        }
+      });
+      await trans.table('decks').toCollection().modify((deck: Record<string, unknown>) => {
+        if (deck.textInputAnswer === undefined) {
+          deck.textInputAnswer = false;
+        }
+      });
+    });
+
+    // v11: goals テーブルを完全削除（目標機能の廃止）
+    this.version(11).stores({
+      decks:     'id, name, sourceLang, targetLang, createdAt',
+      cards:     'id, deckId, nextReview, source, createdAt',
+      studyLogs: 'id, cardId, reviewedAt',
+      goals:     null,
+      tags:      'id, &name, createdAt',
+    });
   }
 }
 
@@ -288,15 +320,42 @@ export async function getCardById(id: string): Promise<Card | undefined> {
 }
 
 export async function getDueCards(deckId?: string): Promise<Card[]> {
-  // FSRS intraday スケジュール対応: 分単位の精度の nextReview を正しく判定するため
-  // 日付文字列ではなく現在時刻の ISO 文字列で比較する（レキシコグラフィック順が成立する）
+  // FSRS intraday スケジュール対応:
+  //   ① nextReview <= now のカード（既に期限到来）
+  //   ② Learning / Relearning 状態かつ nextReview が今日中のカード（当日内再出題対象）
+  //
+  // ② を含める理由:
+  //   Again を押した直後のカードは state='learning', nextReview = now + X分 となる。
+  //   セッションを途中で抜けて再開した場合、X分経過前だと①に含まれないため
+  //   そのカードが次のセッションから消えてしまう。
+  //   当日内の Learning/Relearning カードはセッション継続中とみなして常に含める。
   const nowISO = new Date().toISOString();
-  const collection = db.cards.where('nextReview').belowOrEqual(nowISO);
-  if (deckId) {
-    const cards = await collection.toArray();
-    return cards.filter((c) => c.deckId === deckId);
+  // 当日の UTC 終端（レキシコグラフィック比較用）
+  const endOfTodayISO = `${nowISO.split('T')[0]}T23:59:59.999Z`;
+
+  // ① 既に期限到来のカード
+  const dueNow = await db.cards.where('nextReview').belowOrEqual(nowISO).toArray();
+
+  // ② 期限が今日中だが now より後にある Learning / Relearning カード
+  const laterToday = await db.cards
+    .where('nextReview')
+    .between(nowISO, endOfTodayISO, false, true)
+    .toArray();
+  const intradayLearning = laterToday.filter(
+    (c) => c.fsrs?.state === 'learning' || c.fsrs?.state === 'relearning',
+  );
+
+  // マージ（id で重複排除、① 優先）
+  const cardMap = new Map<string, Card>(dueNow.map((c) => [c.id, c]));
+  for (const c of intradayLearning) {
+    if (!cardMap.has(c.id)) cardMap.set(c.id, c);
   }
-  return collection.toArray();
+  const merged = Array.from(cardMap.values());
+
+  if (deckId) {
+    return merged.filter((c) => c.deckId === deckId);
+  }
+  return merged;
 }
 
 export async function createCard(card: Card): Promise<void> {
@@ -383,23 +442,6 @@ export async function getStudyCountByDateRange(
   return counts;
 }
 
-// ─── 目標操作 ─────────────────────────────────────────────────────────────────
-
-export async function getAllGoals(): Promise<Goal[]> {
-  return db.goals.orderBy('createdAt').reverse().toArray();
-}
-
-export async function createGoal(goal: Goal): Promise<void> {
-  await db.goals.add(goal);
-}
-
-export async function updateGoal(goal: Goal): Promise<void> {
-  await db.goals.put(goal);
-}
-
-export async function deleteGoal(id: string): Promise<void> {
-  await db.goals.delete(id);
-}
 
 // ─── タグ操作 ─────────────────────────────────────────────────────────────────
 
@@ -465,6 +507,55 @@ export async function ensureTagIds(names: string[]): Promise<string[]> {
   const unique = Array.from(new Set(names.map((n) => n.trim()).filter(Boolean)));
   const ids    = await Promise.all(unique.map(ensureTagId));
   return Array.from(new Set(ids));
+}
+
+/**
+ * 複数のカードを一括 put する（選択削除・一括編集用）。
+ * cardCount は変化しないので decks テーブルは触らない。
+ */
+export async function bulkUpdateCards(cards: Card[]): Promise<void> {
+  if (cards.length === 0) return;
+  await db.cards.bulkPut(cards);
+}
+
+/**
+ * 複数のカードを一括削除する。
+ * デッキの cardCount を正しく更新する。
+ */
+export async function bulkDeleteCards(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await db.transaction('rw', db.cards, db.decks, async () => {
+    // deckId ごとに削除数を集計して cardCount を更新
+    const cards = await db.cards.where('id').anyOf(ids).toArray();
+    const countByDeck: Record<string, number> = {};
+    for (const c of cards) {
+      countByDeck[c.deckId] = (countByDeck[c.deckId] ?? 0) + 1;
+    }
+    await db.cards.bulkDelete(ids);
+    for (const [deckId, count] of Object.entries(countByDeck)) {
+      const deck = await db.decks.get(deckId);
+      if (deck) {
+        await db.decks.put({
+          ...deck,
+          cardCount: Math.max(0, deck.cardCount - count),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
+  });
+}
+
+/**
+ * デッキ内の全カードの textInputAnswer を一括更新する（デッキ全体設定用）。
+ */
+export async function updateDeckCardsTextInputAnswer(
+  deckId: string,
+  value: boolean,
+): Promise<void> {
+  await db.cards
+    .where('deckId')
+    .equals(deckId)
+    .modify({ textInputAnswer: value });
 }
 
 /**

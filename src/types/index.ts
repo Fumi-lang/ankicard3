@@ -99,6 +99,11 @@ export interface Deck {
    * 例: 50 → 上限の半分を復習カード、残りを新規カードに割り当てる
    */
   reviewRatio?: number;
+  /**
+   * デッキ全体のテキスト入力回答設定（デフォルト: false）。
+   * true にすると保存時にデッキ内全カードの textInputAnswer を一括上書きする。
+   */
+  textInputAnswer?: boolean;
 }
 
 /** カードの補足情報 */
@@ -157,6 +162,12 @@ export interface Card {
   easeFactor:  number;
   interval:    number;
   repetitions: number;
+
+  /**
+   * テキスト入力回答モード（デフォルト: false）。
+   * true のとき学習画面でテキスト入力欄と「答えを見る」ボタンを表示する。
+   */
+  textInputAnswer?: boolean;
 
   // ── FSRS フィールド（FSRS-6.0 パラメータ）────────────────────────────────
   /**
@@ -227,18 +238,6 @@ export interface StudyLog {
   reviewedAt: string;
   /** デバイス識別子（将来のクラウド同期・競合解決用。今回は未設定）*/
   deviceId?: string;
-}
-
-/** 学習目標 */
-export interface Goal {
-  id: string;
-  deckId?: string;
-  targetWords: number;
-  targetDays: number;
-  wordsLearned: number;
-  startDate: string;
-  isCompleted: boolean;
-  createdAt: string;
 }
 
 /** 対応言語の定義 */

@@ -21,6 +21,11 @@ interface FlashCardProps {
   frontSpeechLang?: string | null;
   /** 裏面（card.frontText）の読み上げ言語コード。null/undefined = 音声ボタン非表示 */
   backSpeechLang?: string | null;
+  /**
+   * true のとき「タップして答えを見る」ガイドテキストを非表示にする。
+   * テキスト入力回答モードでは別途「答えを見る」ボタンがあるため不要。
+   */
+  hideHint?: boolean;
 }
 
 /**
@@ -50,6 +55,7 @@ export const FlashCard: React.FC<FlashCardProps> = ({
   onReveal,
   frontSpeechLang,
   backSpeechLang,
+  hideHint = false,
 }) => {
   const { t, i18n } = useTranslation();
   const lang = i18n.language as 'ja' | 'en';
@@ -114,8 +120,8 @@ export const FlashCard: React.FC<FlashCardProps> = ({
           <SpeechButton text={card.backText} lang={frontSpeechLang} />
         </View>
 
-        {/* タップヒント（未表示時のみ）*/}
-        {!isRevealed && (
+        {/* タップヒント（未表示かつ hideHint が false の場合のみ）*/}
+        {!isRevealed && !hideHint && (
           <Text style={styles.hint}>{t('study.tapToReveal')}</Text>
         )}
 

@@ -3,7 +3,6 @@
 export type MotivationType =
   | 'streak'
   | 'comeback'
-  | 'nearGoal'
   | 'morning'
   | 'afternoon'
   | 'evening'
@@ -26,10 +25,6 @@ export const MOTIVATION_MESSAGES: Record<MotivationType, MotivationMessage> = {
   comeback: {
     ja: 'おかえりなさい！今日から再スタートしましょう 💪',
     en: 'Welcome back! Let\'s restart today 💪',
-  },
-  nearGoal: {
-    ja: 'あと{n}語で目標達成！🎯',
-    en: 'Only {n} more words to your goal! 🎯',
   },
   morning: {
     ja: '朝の学習は記憶の定着に最適！🌅',

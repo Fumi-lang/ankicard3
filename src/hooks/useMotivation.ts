@@ -7,7 +7,6 @@ interface UseMotivationReturn {
   getBannerMessage: (opts: {
     streak: number;
     lastStudiedDate?: string;
-    nearGoalCount?: number;
   }) => string;
   getSessionMessage: (opts: {
     consecutiveCorrect: number;
@@ -26,11 +25,9 @@ export function useMotivation(): UseMotivationReturn {
       ({
         streak,
         lastStudiedDate,
-        nearGoalCount,
       }: {
         streak: number;
         lastStudiedDate?: string;
-        nearGoalCount?: number;
       }): string => {
         // 久しぶりの学習
         if (lastStudiedDate) {
@@ -38,11 +35,6 @@ export function useMotivation(): UseMotivationReturn {
           if (diff > 3) {
             return getMotivationMessage('comeback', appLanguage);
           }
-        }
-
-        // 目標に近い
-        if (nearGoalCount !== undefined && nearGoalCount <= 20 && nearGoalCount > 0) {
-          return getMotivationMessage('nearGoal', appLanguage, nearGoalCount);
         }
 
         // 連続学習
